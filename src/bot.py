@@ -16,19 +16,21 @@ import time
 
 from loguru import logger
 
-from src.config import load_config
+from src.config import AppConfig, load_config
 from src.logger_setup import setup_logging
 from src.mt5_client import MT5Client
 from src.risk_manager import RiskLimitExceeded, RiskManager
-from src.strategies.sma_crossover import SmaCrossoverStrategy
+from src.strategies.structural_pullback import StructuralPullbackStrategy
 from src.types import Signal, TradeOrder
 
 POLL_INTERVAL_SECONDS = 30
 
 
-def build_strategy() -> SmaCrossoverStrategy:
-    # PLACEHOLDER: reemplazar por la estrategia real una vez definida.
-    return SmaCrossoverStrategy(symbol="EURUSD", timeframe="M15")
+def build_strategy() -> StructuralPullbackStrategy:
+    # Sistema estructural con pullback (seccion 10 del documento de
+    # especificacion), sin el filtro de tendencia de 4H y sin el sistema
+    # de reversion por RSI extremo en 1H (quedan para una siguiente etapa).
+    return StructuralPullbackStrategy(symbol="XAUUSD", timeframe="H1")
 
 
 def run() -> None:
@@ -52,7 +54,7 @@ def run() -> None:
     try:
         while True:
             try:
-                iterate(client, strategy, risk_manager, config.dry_run)
+                iterate(client, strategy, risk_manager, config)
             except RiskLimitExceeded as exc:
                 logger.warning("Operacion bloqueada por gestion de riesgo: {}", exc)
             except Exception:
@@ -64,7 +66,7 @@ def run() -> None:
         client.disconnect()
 
 
-def iterate(client: MT5Client, strategy, risk_manager: RiskManager, dry_run: bool) -> None:
+def iterate(client: MT5Client, strategy, risk_manager: RiskManager, config: AppConfig) -> None:
     account = client.get_account_info()
     risk_manager.check_daily_loss_limit(account.balance)
     risk_manager.check_open_positions_limit(account.open_positions)
@@ -74,27 +76,37 @@ def iterate(client: MT5Client, strategy, risk_manager: RiskManager, dry_run: boo
     if signal not in (Signal.BUY, Signal.SELL):
         return
 
+    # La vela de confirmacion del setup ya cerro (el bot solo mira velas
+    # cerradas) -> la orden siempre es de mercado, nunca pendiente
+    # (ver limitacion documentada en structural_pullback.py).
     entry_price = data["close"].iloc[-1]
     sl_price = strategy.stop_loss_price(data, signal)
     tp_price = strategy.take_profit_price(data, signal)
-    pip_size, pip_value_per_lot = client.get_symbol_pip_info(strategy.symbol)
+    specs = client.get_symbol_trade_specs(strategy.symbol)
 
-    volume = risk_manager.calculate_position_size(
+    size_result = risk_manager.calculate_position_size(
         account_balance=account.balance,
         entry_price=entry_price,
         stop_loss_price=sl_price,
-        pip_value_per_lot=pip_value_per_lot,
-        pip_size=pip_size,
+        pip_value_per_lot=specs.pip_value_per_lot,
+        pip_size=specs.pip_size,
+        min_lot=specs.min_lot,
+        lot_step=specs.lot_step,
     )
+    # Riesgo real vs. objetivo se verifica ACA, contra los datos que reporta
+    # el broker (specs y account.balance) - nunca contra un calculo hecho
+    # por separado. Bloquea en cuenta real si el lote minimo fuerza mas
+    # riesgo del configurado (seccion 4 del sistema); en demo solo loguea.
+    risk_manager.enforce_min_lot_policy(size_result, is_real_account=config.is_real_account_server)
 
     order = TradeOrder(
         symbol=strategy.symbol,
         signal=signal,
-        volume=volume,
+        volume=size_result.volume,
         stop_loss=sl_price,
         take_profit=tp_price,
     )
-    client.send_order(order, dry_run=dry_run)
+    client.send_order(order, dry_run=config.dry_run)
 
 
 if __name__ == "__main__":

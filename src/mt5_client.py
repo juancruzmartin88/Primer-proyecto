@@ -24,6 +24,10 @@ class MT5ConnectionError(Exception):
     pass
 
 
+class OrderRejected(Exception):
+    """Rechazo local (antes de tocar el broker) por no cumplir una traba de seguridad."""
+
+
 @dataclass(frozen=True)
 class AccountInfo:
     balance: float
@@ -31,6 +35,14 @@ class AccountInfo:
     currency: str
     leverage: int
     open_positions: int
+
+
+@dataclass(frozen=True)
+class SymbolTradeSpecs:
+    pip_size: float
+    pip_value_per_lot: float
+    min_lot: float
+    lot_step: float
 
 
 class MT5Client:
@@ -98,17 +110,31 @@ class MT5Client:
         df["time"] = pd.to_datetime(df["time"], unit="s")
         return df
 
-    def get_symbol_pip_info(self, symbol: str) -> tuple[float, float]:
-        """Devuelve (pip_size, valor_del_pip_por_lote) para dimensionar posiciones."""
+    def get_symbol_trade_specs(self, symbol: str) -> SymbolTradeSpecs:
+        """Especificaciones del simbolo necesarias para dimensionar posiciones."""
         mt5 = self._mt5_module()
         symbol_info = mt5.symbol_info(symbol)
         if symbol_info is None:
             raise MT5ConnectionError(f"No se encontro informacion del simbolo {symbol}")
         pip_size = symbol_info.point * 10 if symbol_info.digits in (3, 5) else symbol_info.point
         pip_value_per_lot = symbol_info.trade_tick_value * (pip_size / symbol_info.trade_tick_size)
-        return pip_size, pip_value_per_lot
+        return SymbolTradeSpecs(
+            pip_size=pip_size,
+            pip_value_per_lot=pip_value_per_lot,
+            min_lot=symbol_info.volume_min,
+            lot_step=symbol_info.volume_step,
+        )
 
     def send_order(self, order: TradeOrder, *, dry_run: bool) -> dict:
+        # Traba dura: nunca se manda una orden sin SL/TP activos (seccion 4
+        # del sistema: "verificar siempre que los toggles de SL/TP esten
+        # activos antes de confirmar una orden").
+        if not order.stop_loss or not order.take_profit:
+            raise OrderRejected(
+                "Orden rechazada: falta stop_loss o take_profit. Nunca se envia "
+                "una orden sin proteccion activa."
+            )
+
         if dry_run:
             logger.info("[DRY_RUN] Se simularia orden: {}", order)
             return {"dry_run": True, "order": order}
