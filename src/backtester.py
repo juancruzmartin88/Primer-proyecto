@@ -65,6 +65,7 @@ def run_backtest(
     pip_size: float = 0.0001,
     pip_value_per_lot: float = 10.0,
     lookback: int = 50,
+    window_size: int = 200,
 ) -> BacktestResult:
     """Recorre `data` vela a vela, simulando entradas/salidas de la estrategia.
 
@@ -72,12 +73,20 @@ def run_backtest(
     intra-vela usando high/low, tamano de posicion fijo de 1 lote (para
     aislar la calidad de las senales del sizing; el sizing real lo aplica
     el RiskManager en el bot en vivo).
+
+    `window_size` es a proposito el mismo valor por defecto que usa
+    `MT5Client.get_rates` en produccion (`count=200`): la estrategia nunca
+    ve mas velas en vivo que las que le pasa el bot, asi que el backtest
+    tiene que replicar esa misma ventana - si no, se estarian probando
+    condiciones que la estrategia jamas va a tener disponibles quien
+    corre en vivo. Como efecto secundario, tambien evita el costo O(n^2)
+    de recalcular los indicadores sobre todo el historial acumulado.
     """
     result = BacktestResult(initial_balance=initial_balance)
     open_trade: dict | None = None
 
     for i in range(lookback, len(data)):
-        window = data.iloc[: i + 1]
+        window = data.iloc[max(0, i + 1 - window_size) : i + 1]
         candle = data.iloc[i]
 
         if open_trade is not None:
