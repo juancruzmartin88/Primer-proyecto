@@ -9,7 +9,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 import pandas as pd
+from loguru import logger
 
+from src.risk_manager import RiskLimitExceeded, RiskManager
 from src.strategy_base import Strategy
 from src.types import Signal
 
@@ -66,13 +68,25 @@ def run_backtest(
     pip_value_per_lot: float = 10.0,
     lookback: int = 50,
     window_size: int = 200,
+    risk_manager: RiskManager | None = None,
+    min_lot: float = 0.01,
+    lot_step: float = 0.01,
+    is_real_account: bool = False,
 ) -> BacktestResult:
     """Recorre `data` vela a vela, simulando entradas/salidas de la estrategia.
 
     Simplificacion: una sola posicion abierta a la vez, se cierra por SL/TP
-    intra-vela usando high/low, tamano de posicion fijo de 1 lote (para
-    aislar la calidad de las senales del sizing; el sizing real lo aplica
-    el RiskManager en el bot en vivo).
+    intra-vela usando high/low.
+
+    Sin `risk_manager`: tamano de posicion fijo de 1 lote, para aislar la
+    calidad de las senales del sizing (util para comparar variantes de la
+    estrategia entre si, pero el drawdown en USD/% que da NO es realista).
+
+    Con `risk_manager`: aplica la misma regla de riesgo que el bot en vivo
+    (RiskManager.calculate_position_size + enforce_min_lot_policy) sobre un
+    balance que va cambiando con cada trade cerrado - asi el drawdown
+    reportado es el que realmente tendrias operando con tu % de riesgo real
+    sobre `initial_balance`, no un artefacto del lote fijo.
 
     `window_size` es a proposito el mismo valor por defecto que usa
     `MT5Client.get_rates` en produccion (`count=200`): la estrategia nunca
@@ -83,6 +97,7 @@ def run_backtest(
     de recalcular los indicadores sobre todo el historial acumulado.
     """
     result = BacktestResult(initial_balance=initial_balance)
+    balance = initial_balance
     open_trade: dict | None = None
 
     for i in range(lookback, len(data)):
@@ -104,7 +119,8 @@ def run_backtest(
                 exit_price = open_trade["sl"] if hit_sl else open_trade["tp"]
                 direction = 1 if open_trade["signal"] == Signal.BUY else -1
                 pips = (exit_price - open_trade["entry"]) / pip_size * direction
-                pnl = pips * pip_value_per_lot
+                pnl = pips * pip_value_per_lot * open_trade["volume"]
+                balance += pnl
                 result.trades.append({**open_trade, "exit": exit_price, "pnl": pnl})
                 open_trade = None
             continue
@@ -112,11 +128,33 @@ def run_backtest(
         signal = strategy.generate_signal(window)
         if signal in (Signal.BUY, Signal.SELL):
             entry_price = candle["close"]
+            sl_price = strategy.stop_loss_price(window, signal)
+            tp_price = strategy.take_profit_price(window, signal)
+
+            volume = 1.0
+            if risk_manager is not None:
+                try:
+                    size_result = risk_manager.calculate_position_size(
+                        account_balance=balance,
+                        entry_price=entry_price,
+                        stop_loss_price=sl_price,
+                        pip_value_per_lot=pip_value_per_lot,
+                        pip_size=pip_size,
+                        min_lot=min_lot,
+                        lot_step=lot_step,
+                    )
+                    risk_manager.enforce_min_lot_policy(size_result, is_real_account=is_real_account)
+                except RiskLimitExceeded as exc:
+                    logger.debug("Trade descartado por gestion de riesgo: {}", exc)
+                    continue
+                volume = size_result.volume
+
             open_trade = {
                 "signal": signal,
                 "entry": entry_price,
-                "sl": strategy.stop_loss_price(window, signal),
-                "tp": strategy.take_profit_price(window, signal),
+                "sl": sl_price,
+                "tp": tp_price,
+                "volume": volume,
                 "entry_time": candle["time"],
             }
 

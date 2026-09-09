@@ -1,6 +1,6 @@
 {
-  "_comment": "Niveles estructurales cargados a mano (soportes, resistencias, claviculares de H-C-H, pivotes) en las unidades de precio de cada simbolo. Si un simbolo no tiene niveles cargados aca, el bot usa deteccion automatica por fractales como respaldo (ver src/levels.py).",
-  "XAUUSD": [],
-  "BTCUSD": [],
+  "_comment": "Niveles estructurales cargados a mano (soportes, resistencias, claviculares de H-C-H, pivotes) en las unidades de precio de cada simbolo. Si un simbolo no tiene niveles cargados aca, el bot usa deteccion automatica por fractales como respaldo (ver src/levels.py). Fuente: alertas activas de TradingView del usuario, 09/09/2026.",
+  "XAUUSD": [4300.0, 4443.0, 4533.0],
+  "BTCUSD": [77781.0],
   "US500": []
 }
