@@ -75,6 +75,15 @@ después de ver los resultados del backtest):
 - El caso de "lote mínimo fuerza más riesgo del objetivo" (sección 4,
   típico en Oro con capital chico) se maneja en `RiskManager`: bloquea la
   operación en cuenta real, la deja pasar con warning en cuenta demo.
+- **`BTCUSD` es el símbolo por defecto del bot** (`src/bot.py`), no
+  `XAUUSD`. Con backtest real (10/09/2026, niveles automáticos por
+  fractales + `RiskManager` real sobre $400) se confirmó que el lote
+  mínimo de XAUUSD (0.01) fuerza ~4-7% de riesgo real por operación en
+  vez del 1-1.5% objetivo, dado el ATR típico de Oro en H1 — hace falta
+  del orden de $1.500+ de capital para que el lote mínimo respete el
+  riesgo objetivo en ese instrumento. BTC/USD sí calza bien con $400. El
+  bot loguea un warning al arrancar si se corre igual con XAUUSD por
+  debajo de `XAUUSD_MIN_RECOMMENDED_BALANCE`.
 
 Estas son simplificaciones de un proceso que hasta ahora era discrecional
 — no una traducción literal perfecta. Antes de demo, revisá con backtest
@@ -115,9 +124,18 @@ from src.backtester import run_backtest
 from src.strategies.structural_pullback import StructuralPullbackStrategy
 # ... cargar `data` (DataFrame con columnas time, open, high, low, close)
 # Antes de correrlo: cargar los niveles del simbolo en config/levels.json
-strategy = StructuralPullbackStrategy(symbol="XAUUSD", timeframe="H1")
+strategy = StructuralPullbackStrategy(symbol="BTCUSD", timeframe="H1")
 result = run_backtest(strategy, data)
 print(result.summary())
+```
+
+También está `scripts/backtest_from_csv.py`, que corre esto mismo sobre
+un CSV histórico y compara lote fijo vs. riesgo real:
+
+```bash
+python -m scripts.backtest_from_csv data/xauusd_h1.csv XAUUSD \
+    --sep=";" --pip-size=0.01 --pip-value-per-lot=1.0 \
+    --account-balance=400 --risk-per-trade-pct=1.5
 ```
 
 ## Correr el bot en vivo (demo o real)

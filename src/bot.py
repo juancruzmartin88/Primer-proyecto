@@ -25,12 +25,26 @@ from src.types import Signal, TradeOrder
 
 POLL_INTERVAL_SECONDS = 30
 
+# XAU/USD con lote minimo 0.01 arriesga aprox. lo mismo en USD que la
+# distancia del SL en dolares (ver seccion 4 del sistema y la conversacion
+# con el usuario del 10/09/2026: con un SL tipico de ATR H1 de ~$15-30,
+# el lote minimo por si solo ya implica 4-7% de riesgo sobre una cuenta de
+# $400, muy por encima del 1-2% objetivo). Para que el lote minimo respete
+# un riesgo objetivo de ~1.5% hace falta un capital de este orden. Hasta
+# entonces, XAUUSD queda fuera del bot automatico (RiskManager lo seguiria
+# bloqueando en cuenta real via enforce_min_lot_policy, pero mejor ni
+# arrancarlo: en BTC/USD el lote minimo si calza con el riesgo objetivo).
+XAUUSD_MIN_RECOMMENDED_BALANCE = 1500.0
+
 
 def build_strategy() -> StructuralPullbackStrategy:
     # Sistema estructural con pullback (seccion 10 del documento de
     # especificacion), sin el filtro de tendencia de 4H y sin el sistema
     # de reversion por RSI extremo en 1H (quedan para una siguiente etapa).
-    return StructuralPullbackStrategy(symbol="XAUUSD", timeframe="H1")
+    # BTC/USD como simbolo por defecto: es el unico de los dos donde el
+    # lote minimo del broker permite respetar el 1-2% de riesgo objetivo
+    # con un capital de ~$400 (ver XAUUSD_MIN_RECOMMENDED_BALANCE arriba).
+    return StructuralPullbackStrategy(symbol="BTCUSD", timeframe="H1")
 
 
 def run() -> None:
@@ -51,6 +65,18 @@ def run() -> None:
         logger.warning("MODO REAL: el bot va a enviar ordenes reales al broker.")
 
     client.connect()
+    if strategy.symbol == "XAUUSD":
+        account = client.get_account_info()
+        if account.balance < XAUUSD_MIN_RECOMMENDED_BALANCE:
+            logger.warning(
+                "XAUUSD con balance ${:.0f}: el lote minimo del broker va a forzar "
+                "un riesgo real muy por encima del objetivo en casi todas las "
+                "operaciones (ver seccion 4 del sistema). Recomendado: usar BTCUSD "
+                "hasta alcanzar ~${:.0f} de capital, o confirmar con Exness si hay "
+                "una cuenta con lote minimo mas chico para Oro.",
+                account.balance,
+                XAUUSD_MIN_RECOMMENDED_BALANCE,
+            )
     try:
         while True:
             try:
