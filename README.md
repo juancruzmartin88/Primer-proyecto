@@ -162,10 +162,16 @@ Exness abierto y logueado en tu cuenta demo. Pasos:
    demo, no hace falta tocar `LIVE_TRADING_CONFIRMATION` - esa traba es
    solo para cuenta real) y corré `python -m src.bot` de nuevo. Ahora sí
    manda órdenes a tu cuenta demo.
-6. El símbolo por defecto es **BTCUSD** (ver sección de estrategia más
-   arriba, por qué Oro queda pausado con este capital). Frecuencia
-   esperada según el backtest: del orden de 1 señal cada pocos días, no
-   varias por día - no es un bug si pasan varios días sin operar.
+6. El símbolo por defecto es **`BTCUSDm`** (ver `src/bot.py`) — el sufijo
+   `"m"` depende del tipo de cuenta (Standard, en este caso; verificado
+   en el Market Watch de MT5 el 10/09/2026). Si en algún momento cambiás
+   de cuenta/tipo, fijate en Market Watch cómo se llaman ahí `XAUUSD` y
+   `BTCUSD` exactamente, y actualizá `XAUUSD_SYMBOL`/`BTCUSD_SYMBOL` en
+   `src/bot.py` y las claves de `config/levels.json` para que coincidan
+   — si no, el bot no va a encontrar el símbolo y va a tirar error.
+   Frecuencia esperada según el backtest: del orden de 1 señal cada
+   pocos días, no varias por día - no es un bug si pasan varios días
+   sin operar.
 7. Actualizá `config/levels.json` cada vez que cambien tus niveles
    relevantes en TradingView - el bot los relee en cada iteración, no
    hace falta reiniciarlo.

@@ -36,6 +36,14 @@ POLL_INTERVAL_SECONDS = 30
 # arrancarlo: en BTC/USD el lote minimo si calza con el riesgo objetivo).
 XAUUSD_MIN_RECOMMENDED_BALANCE = 1500.0
 
+# Sufijo "m": la cuenta demo del usuario es tipo Standard
+# (Exness-MT5Trial11), y asi nombra los simbolos esa cuenta - verificado
+# en Market Watch el 10/09/2026 (XAUUSDm, BTCUSDm, no XAUUSD/BTCUSD a
+# secas). Si se cambia de cuenta/tipo, revisar el sufijo real en MT5
+# antes de asumir que sigue siendo "m".
+XAUUSD_SYMBOL = "XAUUSDm"
+BTCUSD_SYMBOL = "BTCUSDm"
+
 
 def build_strategy() -> StructuralPullbackStrategy:
     # Sistema estructural con pullback (seccion 10 del documento de
@@ -44,7 +52,7 @@ def build_strategy() -> StructuralPullbackStrategy:
     # BTC/USD como simbolo por defecto: es el unico de los dos donde el
     # lote minimo del broker permite respetar el 1-2% de riesgo objetivo
     # con un capital de ~$400 (ver XAUUSD_MIN_RECOMMENDED_BALANCE arriba).
-    return StructuralPullbackStrategy(symbol="BTCUSD", timeframe="H1")
+    return StructuralPullbackStrategy(symbol=BTCUSD_SYMBOL, timeframe="H1")
 
 
 def run() -> None:
@@ -65,7 +73,7 @@ def run() -> None:
         logger.warning("MODO REAL: el bot va a enviar ordenes reales al broker.")
 
     client.connect()
-    if strategy.symbol == "XAUUSD":
+    if strategy.symbol == XAUUSD_SYMBOL:
         account = client.get_account_info()
         if account.balance < XAUUSD_MIN_RECOMMENDED_BALANCE:
             logger.warning(
