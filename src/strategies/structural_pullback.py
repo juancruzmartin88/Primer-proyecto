@@ -32,14 +32,23 @@ que se puedan ajustar con el backtest, no son "gratis"):
   - Los niveles se toman de `src/levels.py`: manuales primero
     (config/levels.json), fractales automaticos como respaldo.
 
-Ajuste del 10/09/2026 (para subir la frecuencia de señales, muy baja en la
-verificacion contra el registro real de operaciones): se saco el requisito
-de que la vela de confirmacion cierre mas alla del extremo de la vela de
-rechazo. Ese requisito no esta en el texto de la seccion 5 (que solo pide
-"cierre a favor de la direccion esperada") y era redundante con el cruce
-de RSI - de los cinco filtros del setup, era el que menos aportaba criterio
-propio. El resto (nivel relevante, geometria de la vela de rechazo, cruce
-de RSI, relacion riesgo/beneficio del TP) se mantiene sin cambios.
+Ajustes del 10/09/2026 (para subir la frecuencia de señales, muy baja en la
+verificacion contra el registro real de operaciones):
+
+  1. Se saco el requisito de que la vela de confirmacion cierre mas alla
+     del extremo de la vela de rechazo. Ese requisito no esta en el texto
+     de la seccion 5 (que solo pide "cierre a favor de la direccion
+     esperada") y era redundante con el cruce de RSI.
+  2. Se relajo la geometria de la vela de rechazo: `rejection_wick_ratio`
+     baja de 2.0x (definicion "de manual" en candles.py) a 1.5x por
+     defecto. Un martillo/estrella fugaz de manual es raro en velas reales
+     de 1H; exigir 2x dejaba pasar casi todos los rechazos legitimos. Esta
+     si es una condicion mencionada explicitamente en la seccion 3.4 del
+     sistema, asi que se toco con mas cuidado que la anterior - se relajo
+     el umbral, no se elimino el requisito.
+
+El nivel relevante, el cruce de RSI y la relacion riesgo/beneficio del TP
+se mantienen sin cambios.
 """
 from __future__ import annotations
 
@@ -76,12 +85,14 @@ class StructuralPullbackStrategy(Strategy):
         sl_atr_margin_mult: float = 0.5,
         min_risk_reward: float = 1.5,
         fallback_rr_multiple: float = 2.0,
+        rejection_wick_ratio: float = 1.5,
     ) -> None:
         self.symbol = symbol
         self.timeframe = timeframe
         self.levels_path = levels_path
         self.lookback_candles = lookback_candles
         self.level_proximity_atr_mult = level_proximity_atr_mult
+        self.rejection_wick_ratio = rejection_wick_ratio
         self.atr_period = atr_period
         self.rsi_period = rsi_period
         self.sl_atr_margin_mult = sl_atr_margin_mult
@@ -175,12 +186,16 @@ class StructuralPullbackStrategy(Strategy):
 
         return None
 
-    @staticmethod
-    def _is_rejection_candle(candle: pd.Series, direction: Signal) -> bool:
+    def _is_rejection_candle(self, candle: pd.Series, direction: Signal) -> bool:
         # Martillo para pullback alcista, estrella fugaz para pullback bajista
         # (seccion 3.4 y 5, version 2: "vela de rechazo tipo martillo/estrella
-        # fugaz segun direccion").
-        return is_hammer(candle) if direction == Signal.BUY else is_shooting_star(candle)
+        # fugaz segun direccion"). El ratio mecha/cuerpo es configurable
+        # (rejection_wick_ratio, default 1.5x en vez del 2.0x "de manual de
+        # texto" de candles.py) porque en velas reales de 1H rara vez se ve
+        # un martillo perfecto de 2x; exigirlo dejaba pasar muy pocos setups.
+        if direction == Signal.BUY:
+            return is_hammer(candle, min_wick_to_body=self.rejection_wick_ratio)
+        return is_shooting_star(candle, min_wick_to_body=self.rejection_wick_ratio)
 
     @staticmethod
     def _is_confirmation_candle(candle: pd.Series, direction: Signal) -> bool:
