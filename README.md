@@ -138,23 +138,49 @@ python -m scripts.backtest_from_csv data/xauusd_h1.csv XAUUSD \
     --account-balance=400 --risk-per-trade-pct=1.5
 ```
 
-## Correr el bot en vivo (demo o real)
+## Puesta en marcha en demo (10/09/2026)
 
-```bash
-python -m src.bot
-```
+El bot **no corre en este repositorio remoto** — necesita el terminal
+MetaTrader 5 real, así que se ejecuta en tu PC (o una VPS Windows) con
+Exness abierto y logueado en tu cuenta demo. Pasos:
+
+1. En esa máquina: `git clone` este repo (o `git pull` si ya lo tenés),
+   y confirmá que estás parado en la rama `claude/exness-trading-bot-k8ya9k`
+   (o la que tu equipo haya mergeado a `main`).
+2. `python -m venv .venv && .venv\Scripts\activate` (Windows) y
+   `pip install -r requirements.txt`.
+3. `copy .env.example .env` y completá `MT5_LOGIN`, `MT5_PASSWORD` y
+   `MT5_SERVER` con los datos de tu cuenta **demo** (el servidor lo ves
+   en la ventana de login de MT5 - va a decir "Trial" o "Demo").
+   Dejá `DRY_RUN=true` para el primer día.
+4. `python -m src.bot` — con `DRY_RUN=true` el bot corre en vivo contra
+   los precios reales de tu demo, calcula todo, pero **nunca manda
+   órdenes** — solo loguea qué haría. Mirá `logs/bot.log` un día o dos
+   para confirmar que arranca sin errores y que las señales que muestra
+   tienen sentido.
+5. Cuando estés cómodo, poné `DRY_RUN=false` en el `.env` (seguís en
+   demo, no hace falta tocar `LIVE_TRADING_CONFIRMATION` - esa traba es
+   solo para cuenta real) y corré `python -m src.bot` de nuevo. Ahora sí
+   manda órdenes a tu cuenta demo.
+6. El símbolo por defecto es **BTCUSD** (ver sección de estrategia más
+   arriba, por qué Oro queda pausado con este capital). Frecuencia
+   esperada según el backtest: del orden de 1 señal cada pocos días, no
+   varias por día - no es un bug si pasan varios días sin operar.
+7. Actualizá `config/levels.json` cada vez que cambien tus niveles
+   relevantes en TradingView - el bot los relee en cada iteración, no
+   hace falta reiniciarlo.
+
+Registrá cada operación igual que en la sección 9 de tu sistema (fecha,
+motivo, resultado, lección) - el bot no lo hace todavía por vos.
 
 ## Próximo paso
 
-1. Cargar los niveles estructurales reales en `config/levels.json` para
-   XAU/USD, BTC/USD y US500 (los que ya venís leyendo en TradingView).
-2. Correr el backtest sobre el historial real de cada instrumento y
-   revisar `result.summary()` (win rate, profit factor, drawdown) contra
-   el criterio de la sección 9 del sistema.
-3. Ajustar los parámetros de `StructuralPullbackStrategy` según lo que
-   muestre el backtest — no hay que esperar que la v1 sea perfecta.
-4. Recién ahí, correr el bot contra la cuenta **demo** (`DRY_RUN=true` al
-   principio, después `false` sobre demo) y repetir el control de calidad
-   de la sección 9 hasta la racha de 5-8 operaciones sin error de proceso.
-5. El sistema de reversión por RSI extremo en 1H (corto plazo) y el
-   filtro de tendencia de 4H quedan como siguientes iteraciones.
+1. Completar la racha de 5-8 operaciones en demo sin error de proceso
+   (la definición es tuya, sección 9 del sistema) y comparar el
+   profit factor real contra el del backtest (2.04 XAUUSD / 1.39 BTCUSD
+   sobre 7 meses, con la configuración vigente).
+2. Si el profit factor real se sostiene, evaluar el pase a cuenta real
+   en BTC/USD. XAUUSD queda pausado hasta ~$1500 de capital.
+3. El sistema de reversión por RSI extremo en 1H (corto plazo) y el
+   filtro de tendencia de 4H quedan como siguientes iteraciones, después
+   de tener resultados reales de demo con el sistema actual.
