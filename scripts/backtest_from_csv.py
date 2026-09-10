@@ -42,6 +42,7 @@ def main() -> None:
     parser.add_argument("--account-balance", type=float, default=400.0)
     parser.add_argument("--risk-per-trade-pct", type=float, default=1.0)
     parser.add_argument("--min-lot", type=float, default=0.01)
+    parser.add_argument("--rejection-wick-ratio", type=float, default=1.5)
     args = parser.parse_args()
 
     data = load_csv(args.csv_path, args.sep)
@@ -50,7 +51,10 @@ def main() -> None:
     # 1) Lote fijo: aisla la calidad de las senales, pero el drawdown en
     #    USD/% no es realista (no refleja tu riesgo real por operacion).
     strategy = StructuralPullbackStrategy(
-        symbol=args.symbol, timeframe=args.timeframe, levels_path=args.levels_path
+        symbol=args.symbol,
+        timeframe=args.timeframe,
+        levels_path=args.levels_path,
+        rejection_wick_ratio=args.rejection_wick_ratio,
     )
     fixed_lot_result = run_backtest(
         strategy, data, pip_size=args.pip_size, pip_value_per_lot=args.pip_value_per_lot
@@ -60,7 +64,10 @@ def main() -> None:
     # 2) Riesgo real: mismo RiskManager que usa el bot en vivo, sobre un
     #    balance inicial y % de riesgo por operacion configurables.
     strategy_for_risk = StructuralPullbackStrategy(
-        symbol=args.symbol, timeframe=args.timeframe, levels_path=args.levels_path
+        symbol=args.symbol,
+        timeframe=args.timeframe,
+        levels_path=args.levels_path,
+        rejection_wick_ratio=args.rejection_wick_ratio,
     )
     risk_manager = RiskManager(
         RiskConfig(
