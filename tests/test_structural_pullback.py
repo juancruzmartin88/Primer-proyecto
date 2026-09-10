@@ -114,11 +114,12 @@ def test_sell_setup_detected_with_sl_above_pullback_and_tp_by_rr(levels_file):
     assert tp == pytest.approx(entry - 2.0 * risk, rel=1e-6)
 
 
-def test_no_setup_when_confirmation_does_not_close_beyond_rejection(levels_file):
-    # Confirmacion demasiado tibia: cierra por encima de la apertura pero
-    # no supera el maximo de la vela de rechazo -> no confirma la reversion.
+def test_no_setup_when_confirmation_candle_is_not_bullish(levels_file):
+    # La vela de confirmacion tiene que cerrar a favor de la direccion
+    # esperada (seccion 5, v2). Si cierra bajista (close <= open) para un
+    # setup de compra, no hay confirmacion -> no hay señal.
     strategy = _make_strategy("BUYSYM", levels_file)
-    data = _candles(_buy_setup_rows(confirmation_close=100.52))
+    data = _candles(_buy_setup_rows(confirmation_close=100.45))
 
     assert strategy.generate_signal(data) == Signal.HOLD
 
@@ -132,7 +133,8 @@ def test_no_setup_without_enough_history(levels_file):
 
 def test_stop_loss_price_raises_without_prior_signal(levels_file):
     strategy = _make_strategy("BUYSYM", levels_file)
-    data = _candles(_buy_setup_rows(confirmation_close=100.52))  # setup invalido -> HOLD
+    # Movimiento demasiado chico para cruzar RSI(3) por 50 -> setup invalido -> HOLD
+    data = _candles(_buy_setup_rows(confirmation_close=100.52))
 
     with pytest.raises(ValueError):
         strategy.stop_loss_price(data, Signal.BUY)

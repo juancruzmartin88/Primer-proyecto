@@ -31,6 +31,15 @@ que se puedan ajustar con el backtest, no son "gratis"):
     sumarlo despues de validar el sistema base).
   - Los niveles se toman de `src/levels.py`: manuales primero
     (config/levels.json), fractales automaticos como respaldo.
+
+Ajuste del 10/09/2026 (para subir la frecuencia de señales, muy baja en la
+verificacion contra el registro real de operaciones): se saco el requisito
+de que la vela de confirmacion cierre mas alla del extremo de la vela de
+rechazo. Ese requisito no esta en el texto de la seccion 5 (que solo pide
+"cierre a favor de la direccion esperada") y era redundante con el cruce
+de RSI - de los cinco filtros del setup, era el que menos aportaba criterio
+propio. El resto (nivel relevante, geometria de la vela de rechazo, cruce
+de RSI, relacion riesgo/beneficio del TP) se mantiene sin cambios.
 """
 from __future__ import annotations
 
@@ -152,8 +161,6 @@ class StructuralPullbackStrategy(Strategy):
                 continue
             if not self._rsi_crossed_50(rsi_prev, rsi_curr, direction):
                 continue
-            if not self._confirms_beyond_rejection(confirmation, rejection, direction):
-                continue
 
             level = self._find_pullback_level(data, levels, rejection_idx, direction, current_atr)
             if level is None:
@@ -177,16 +184,13 @@ class StructuralPullbackStrategy(Strategy):
 
     @staticmethod
     def _is_confirmation_candle(candle: pd.Series, direction: Signal) -> bool:
+        # Textual del sistema (seccion 5, v2): "vela que confirme la reversion
+        # (cierre a favor de la direccion esperada)" - nada mas estricto que
+        # esto. Antes se exigia ademas que cerrara mas alla del extremo de la
+        # vela de rechazo; se saco (10/09/2026) por ser mas estricto que la
+        # regla documentada y redundante con el cruce de RSI (las dos velan
+        # por lo mismo: que el momentum ya giro).
         return candle["close"] > candle["open"] if direction == Signal.BUY else candle["close"] < candle["open"]
-
-    @staticmethod
-    def _confirms_beyond_rejection(confirmation: pd.Series, rejection: pd.Series, direction: Signal) -> bool:
-        # La vela de confirmacion tiene que cerrar mas alla del extremo de la
-        # vela de rechazo, para exigir que la reversion sea real y no solo
-        # un cierre tibio en la misma direccion.
-        if direction == Signal.BUY:
-            return confirmation["close"] > rejection["high"]
-        return confirmation["close"] < rejection["low"]
 
     @staticmethod
     def _rsi_crossed_50(rsi_prev: float, rsi_curr: float, direction: Signal) -> bool:
