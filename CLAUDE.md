@@ -24,6 +24,14 @@ hizo el bot", la única fuente de verdad es lo que él mismo reporte (capturas
 de MT5, del log `logs/bot.log`, o de su planilla de registro) - no asumas
 que podés consultarlo directamente.
 
+**Zona horaria del usuario: Argentina (UTC-3).** La fecha/hora de sistema de
+este entorno corre en UTC, así que va a mostrar un día adelantado respecto a
+lo que ve el usuario durante buena parte del día (ej.: acá ya es 12/09 a la
+madrugada cuando en Argentina todavía es 11/09 a la noche). Antes de marcar
+una inconsistencia de fecha en algo que reporte el usuario (planilla de
+registro, capturas de MT5, etc.), convertir mentalmente a UTC-3 en vez de
+asumir que está mal cargado.
+
 ## Decisiones clave y por qué (para no repreguntarlas)
 
 1. **Estrategia**: `StructuralPullbackStrategy` (`src/strategies/structural_pullback.py`),
