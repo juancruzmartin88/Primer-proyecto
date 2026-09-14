@@ -5,8 +5,10 @@ de riesgo antes que en la estrategia en sí.
 
 ## ⚠️ Advertencia
 
-Este bot puede enviar órdenes reales a una cuenta de Exness con dinero real.
-**No lo conectes a una cuenta real sin antes:**
+**Este bot opera con dinero real desde el 14/09/2026** (cuenta real del
+usuario, ver `CLAUDE.md` para el estado vigente). Si estás arrancando de
+cero con este repo en otra cuenta, no lo conectes a una cuenta real sin
+antes:
 
 1. Correr y revisar el backtest sobre datos históricos representativos.
 2. Operarlo en **cuenta demo** durante varias semanas, en distintas
@@ -30,14 +32,14 @@ src/
   indicators.py                # RSI(14) y ATR(14), suavizado de Wilder
   candles.py                   # Patrones de vela: martillo, estrella fugaz, envolvente, doji
   levels.py                    # Niveles estructurales: manuales (config/levels.json) + fractales de respaldo
-  risk_manager.py              # Position sizing, kill switch diario, límite de posiciones, política de lote mínimo
+  risk_manager.py              # Position sizing, kill switch diario, límite de posiciones (por instrumento), política de lote mínimo
   strategy_base.py             # Interfaz que debe cumplir cualquier estrategia
   strategies/
-    structural_pullback.py     # Estrategia real del sistema (ver sección "Estrategia" abajo)
+    structural_pullback.py     # Estrategia real del sistema (Metodología v2 — ver sección "Estrategia" abajo)
     sma_crossover.py           # Estrategia de ejemplo, solo para referencia/tests del motor
   mt5_client.py                 # Wrapper sobre el paquete MetaTrader5
   backtester.py                  # Motor de backtesting sobre datos históricos
-  bot.py                          # Loop principal en vivo (demo o real)
+  bot.py                          # Loop principal en vivo (demo o real) — BTC + Oro en simultáneo
 config/
   levels.json                     # Niveles estructurales cargados a mano, por símbolo
 tests/
@@ -45,52 +47,70 @@ tests/
   test_risk_manager.py, test_backtester.py, test_structural_pullback.py
 ```
 
-## Estrategia implementada
+## Estrategia implementada — Metodología v2 (14/09/2026)
 
-`src/strategies/structural_pullback.py` traduce la sección 10 (el
-pseudocódigo "resumen ejecutable para el bot") del sistema documentado:
-ruptura/rebote reciente desde un nivel → esperar el pullback → exigir vela
-de rechazo (martillo/estrella fugaz) + vela de confirmación que cierre más
-allá del extremo de la vela de rechazo → exigir cruce de RSI(14) sobre/bajo
-50 → SL por ATR o extremo real del pullback → TP en el siguiente nivel
-estructural (o un múltiplo de riesgo si ese nivel da mala relación
-riesgo/beneficio).
+`src/strategies/structural_pullback.py` traduce la sección 4 del sistema
+de trading vigente (reemplaza al enfoque anterior de "entrar en la vela de
+ruptura"). Una señal requiere que se cumplan, todos a la vez, sobre las
+últimas dos velas cerradas de un símbolo:
 
-**Decisiones tomadas para esta primera versión** (se pueden revisar
-después de ver los resultados del backtest):
+1. **Nivel técnico relevante tocado** — igual que antes: primero los niveles
+   cargados a mano en `config/levels.json`, con fractales automáticos como
+   respaldo si el símbolo no tiene niveles cargados.
+2. **Extremo de RSI(14) real** — el RSI tuvo que cruzar por debajo de 30
+   (sobreventa) o por encima de 70 (sobrecompra) en algún momento reciente
+   (ventana configurable, `extreme_lookback`), no solo cruzar el nivel 50.
+3. **Giro confirmado del RSI** — no alcanza con tocar el extremo: para la
+   vela de confirmación el RSI ya tiene que haber cruzado de vuelta el
+   umbral (30/70). No se exige que el cruce ocurra en la vela de rechazo
+   misma — en los casos reales la recuperación es progresiva a lo largo de
+   varias velas.
+4. **Vela de rechazo (martillo/estrella fugaz) + vela de confirmación** que
+   cierre a favor de la operación — igual que antes, y ahora además con
+   **volumen** de la vela de rechazo por encima del promedio reciente (si
+   los datos traen columna de volumen; los CSV de backtest de Twelve Data
+   usados hasta ahora no la traen, así que ese chequeo no aplica sobre esos
+   backtests — en vivo MT5 sí entrega `tick_volume` en cada vela).
 
-- **Sin filtro de tendencia de 4H** todavía — el sistema opera solo con la
-  lógica de 1H. Se puede sumar un filtro de EMA50 en 4H más adelante.
-- **Niveles**: primero se usan los que cargues a mano en `config/levels.json`
-  para cada símbolo; si un símbolo no tiene niveles cargados, el bot cae a
-  una detección automática por fractales (aproximación matemática, no
-  reemplaza tu lectura de gráfico).
-- **Solo el sistema estructural** de la sección 10 — el sistema de
-  reversión por RSI extremo en 1H (sección 2, "corto plazo") todavía no
-  está implementado.
-- El bot solo actúa sobre velas ya cerradas, así que **siempre envía
-  órdenes de mercado**, nunca pendientes (la variante con Buy/Sell Limit
-  sobre el pullback en formación, sección 6, queda para una v2 si hace
-  falta más precisión de entrada).
-- El caso de "lote mínimo fuerza más riesgo del objetivo" (sección 4,
-  típico en Oro con capital chico) se maneja en `RiskManager`: bloquea la
-  operación en cuenta real, la deja pasar con warning en cuenta demo.
-- **`BTCUSD` es el símbolo por defecto del bot** (`src/bot.py`), no
-  `XAUUSD`. Con backtest real (10/09/2026, niveles automáticos por
-  fractales + `RiskManager` real sobre $400) se confirmó que el lote
-  mínimo de XAUUSD (0.01) fuerza ~4-7% de riesgo real por operación en
-  vez del 1-1.5% objetivo, dado el ATR típico de Oro en H1 — hace falta
-  del orden de $1.500+ de capital para que el lote mínimo respete el
-  riesgo objetivo en ese instrumento. BTC/USD sí calza bien con $400. El
-  bot loguea un warning al arrancar si se corre igual con XAUUSD por
-  debajo de `XAUUSD_MIN_RECOMMENDED_BALANCE`.
+SL por ATR(14) o extremo real del pullback (el que sea más conservador). TP
+en el siguiente nivel estructural, o un múltiplo de riesgo si ese nivel da
+mala relación riesgo/beneficio — sin cambios respecto a la versión anterior.
+
+**Decisiones de arquitectura (14/09/2026, antes de activar cuenta real):**
+
+- **Orden de mercado en la vela de confirmación ya cerrada**, no Buy
+  Stop/Sell Stop pendiente. El bot solo actúa sobre velas cerradas, así que
+  en la práctica ya entra "después" de que el rebote arrancó — similar en
+  espíritu a un Stop, sin la complejidad operacional de gestionar órdenes
+  pendientes (colocar, vigilar, cancelar) en un sistema recién puesto en
+  producción con dinero real.
+- **Riesgo por operación: 2% fijo**, igual para BTC y Oro (antes 1.5%). Con
+  el capital real (~$650) esto reproduce el límite de 13 puntos de SL para
+  Oro de la sección 3.2 del sistema — ese límite no está hardcodeado en
+  ningún lado: surge de `RiskManager.calculate_position_size` +
+  `enforce_min_lot_policy`, que en cuenta real **bloquea** cualquier señal
+  cuyo SL técnico, al lote mínimo del broker, fuerce más del 2% de riesgo
+  real sobre el balance actual — se recalcula solo con el balance vigente
+  de la cuenta, sin ningún ajuste manual si el capital cambia.
+- **Dos instrumentos en simultáneo** (BTC + Oro): `MAX_OPEN_POSITIONS` es
+  ahora un límite **por instrumento**, no total de la cuenta — una señal de
+  Oro no se pierde porque BTC tenga una posición abierta, y viceversa. El
+  kill switch diario (`MAX_DAILY_LOSS_PCT`) sí es compartido entre los dos.
+- **Sin filtro de tendencia de 4H** todavía.
+- **Sin sistema de reversión por RSI extremo como estrategia separada** —
+  la Metodología v2 ya incorpora el chequeo de RSI extremo (30/70) dentro
+  de la única lógica de entrada, así que el viejo plan de "sistema corto
+  plazo aparte" queda absorbido acá, no pendiente.
+- **`XAUUSDm`/`BTCUSDm` son los dos símbolos que opera el bot** (`src/bot.py`).
+  El sufijo `"m"` depende del tipo de cuenta — **hay que reverificarlo en el
+  Market Watch de la cuenta real** antes de arrancar: puede no ser el mismo
+  que en la demo (Standard).
 
 Estas son simplificaciones de un proceso que hasta ahora era discrecional
-— no una traducción literal perfecta. Antes de demo, revisá con backtest
-si el comportamiento en casos reales (rupturas, rebotes, distintos
-instrumentos) coincide con tu criterio, y ajustá los parámetros
+— no una traducción literal perfecta. Ajustá los parámetros
 (`lookback_candles`, `level_proximity_atr_mult`, `sl_atr_margin_mult`,
-`min_risk_reward`) que la estrategia expone en su constructor.
+`min_risk_reward`, `extreme_lookback`, `volume_confirmation_mult`) que la
+estrategia expone en su constructor si el backtest muestra que hace falta.
 
 ## Requisitos
 
@@ -108,7 +128,7 @@ python -m venv .venv
 source .venv/bin/activate  # En Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 cp .env.example .env
-# Editar .env con las credenciales de la cuenta (demo primero)
+# Editar .env con las credenciales de la cuenta
 ```
 
 ## Correr los tests
@@ -135,44 +155,42 @@ un CSV histórico y compara lote fijo vs. riesgo real:
 ```bash
 python -m scripts.backtest_from_csv data/xauusd_h1.csv XAUUSD \
     --sep=";" --pip-size=0.01 --pip-value-per-lot=1.0 \
-    --account-balance=400 --risk-per-trade-pct=1.5
+    --account-balance=650 --risk-per-trade-pct=2.0
 ```
 
-## Puesta en marcha en demo (10/09/2026)
+## Puesta en marcha (cuenta real, 14/09/2026)
 
 El bot **no corre en este repositorio remoto** — necesita el terminal
 MetaTrader 5 real, así que se ejecuta en tu PC (o una VPS Windows) con
-Exness abierto y logueado en tu cuenta demo. Pasos:
+Exness abierto y logueado en tu cuenta. Pasos:
 
-1. En esa máquina: `git clone` este repo (o `git pull` si ya lo tenés),
-   y confirmá que estás parado en la rama `claude/exness-trading-bot-k8ya9k`
-   (o la que tu equipo haya mergeado a `main`).
-2. `python -m venv .venv && .venv\Scripts\activate` (Windows) y
-   `pip install -r requirements.txt`.
-3. `copy .env.example .env` y completá `MT5_LOGIN`, `MT5_PASSWORD` y
-   `MT5_SERVER` con los datos de tu cuenta **demo** (el servidor lo ves
-   en la ventana de login de MT5 - va a decir "Trial" o "Demo").
-   Dejá `DRY_RUN=true` para el primer día.
-4. `python -m src.bot` — con `DRY_RUN=true` el bot corre en vivo contra
-   los precios reales de tu demo, calcula todo, pero **nunca manda
-   órdenes** — solo loguea qué haría. Mirá `logs/bot.log` un día o dos
-   para confirmar que arranca sin errores y que las señales que muestra
-   tienen sentido.
-5. Cuando estés cómodo, poné `DRY_RUN=false` en el `.env` (seguís en
-   demo, no hace falta tocar `LIVE_TRADING_CONFIRMATION` - esa traba es
-   solo para cuenta real) y corré `python -m src.bot` de nuevo. Ahora sí
-   manda órdenes a tu cuenta demo.
-6. El símbolo por defecto es **`BTCUSDm`** (ver `src/bot.py`) — el sufijo
-   `"m"` depende del tipo de cuenta (Standard, en este caso; verificado
-   en el Market Watch de MT5 el 10/09/2026). Si en algún momento cambiás
-   de cuenta/tipo, fijate en Market Watch cómo se llaman ahí `XAUUSD` y
-   `BTCUSD` exactamente, y actualizá `XAUUSD_SYMBOL`/`BTCUSD_SYMBOL` en
-   `src/bot.py` y las claves de `config/levels.json` para que coincidan
-   — si no, el bot no va a encontrar el símbolo y va a tirar error.
-   Frecuencia esperada según el backtest: del orden de 1 señal cada
-   pocos días, no varias por día - no es un bug si pasan varios días
-   sin operar.
-7. Actualizá `config/levels.json` cada vez que cambien tus niveles
+1. En esa máquina: `git pull` sobre la rama
+   `claude/exness-trading-bot-k8ya9k` para traer la Metodología v2.
+2. `.venv\Scripts\activate` (si ya tenías el entorno armado de la demo, no
+   hace falta recrearlo) y `pip install -r requirements.txt` de nuevo por
+   si hay dependencias nuevas.
+3. **Verificá el sufijo de símbolo en el Market Watch de la cuenta real**
+   (Herramientas → Symbols, o buscá XAU/BTC directamente) — puede no ser
+   `"m"` como en la demo Standard. Si es distinto, avisame para actualizar
+   `XAUUSD_SYMBOL`/`BTCUSD_SYMBOL` en `src/bot.py` y las claves de
+   `config/levels.json`.
+4. Actualizá el `.env` con los datos de la cuenta **real**: `MT5_LOGIN`,
+   `MT5_PASSWORD`, `MT5_SERVER` (el que muestra MT5 al loguearte — ya NO
+   va a decir "Trial"/"Demo"), `RISK_PER_TRADE_PCT=2.0`. Dejá
+   `DRY_RUN=true` para la primera puesta en marcha.
+5. `python -m src.bot` con `DRY_RUN=true` — corre en vivo contra los
+   precios reales de tu cuenta real, calcula todo, pero **nunca manda
+   órdenes**. Confirmá en la consola que conecta bien a los dos símbolos y
+   que no tira errores, al menos un rato antes de destrabar envío real.
+6. Recién ahí: `DRY_RUN=false` y, como el servidor ya no es demo, agregá
+   `LIVE_TRADING_CONFIRMATION=ENTIENDO_EL_RIESGO` en el `.env` (sin esto el
+   bot rechaza arrancar en real — traba deliberada). Corré `python -m
+   src.bot` de nuevo. Ahora sí manda órdenes reales.
+7. El bot opera **BTC y Oro en simultáneo**, cada uno con su propio límite
+   de posiciones abiertas. Frecuencia esperada según el backtest anterior:
+   del orden de 1 señal cada pocos días por instrumento — no es un bug si
+   pasan varios días sin operar ninguno de los dos.
+8. Actualizá `config/levels.json` cada vez que cambien tus niveles
    relevantes en TradingView - el bot los relee en cada iteración, no
    hace falta reiniciarlo.
 
@@ -181,12 +199,10 @@ motivo, resultado, lección) - el bot no lo hace todavía por vos.
 
 ## Próximo paso
 
-1. Completar la racha de 5-8 operaciones en demo sin error de proceso
-   (la definición es tuya, sección 9 del sistema) y comparar el
-   profit factor real contra el del backtest (2.04 XAUUSD / 1.39 BTCUSD
-   sobre 7 meses, con la configuración vigente).
-2. Si el profit factor real se sostiene, evaluar el pase a cuenta real
-   en BTC/USD. XAUUSD queda pausado hasta ~$1500 de capital.
-3. El sistema de reversión por RSI extremo en 1H (corto plazo) y el
-   filtro de tendencia de 4H quedan como siguientes iteraciones, después
-   de tener resultados reales de demo con el sistema actual.
+1. Juntar operaciones reales de la cuenta real con la Metodología v2 y
+   compararlas contra el backtest (ver `CLAUDE.md` para los números
+   vigentes).
+2. El sistema de reversión por RSI extremo ya no es un ítem pendiente
+   aparte — quedó absorbido dentro de la Metodología v2. El filtro de
+   tendencia de 4H y las notificaciones (Telegram) siguen pendientes,
+   no empezar sin que el usuario lo pida.

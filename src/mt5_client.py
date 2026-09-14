@@ -110,6 +110,19 @@ class MT5Client:
         df["time"] = pd.to_datetime(df["time"], unit="s")
         return df
 
+    def get_open_positions_count(self, symbol: str) -> int:
+        """Posiciones abiertas para UN simbolo puntual (no el total de la cuenta).
+
+        Con dos instrumentos operando en simultaneo (BTC + Oro, 14/09/2026),
+        el limite de posiciones abiertas (`MAX_OPEN_POSITIONS`) se aplica por
+        instrumento, no sobre el total de la cuenta - por eso esto va
+        separado de `get_account_info().open_positions` (que sigue siendo
+        el total, para referencia/logging).
+        """
+        mt5 = self._mt5_module()
+        positions = mt5.positions_get(symbol=symbol)
+        return len(positions) if positions is not None else 0
+
     def get_symbol_trade_specs(self, symbol: str) -> SymbolTradeSpecs:
         """Especificaciones del simbolo necesarias para dimensionar posiciones."""
         mt5 = self._mt5_module()

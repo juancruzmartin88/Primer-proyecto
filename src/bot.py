@@ -1,10 +1,15 @@
 """Loop principal del bot en vivo (demo o real, segun configuracion).
 
-Flujo por iteracion:
+Desde el 14/09/2026 opera DOS instrumentos en la misma corrida (BTC + Oro,
+cuenta real, ver CLAUDE.md) con la Metodologia v2 de
+`src/strategies/structural_pullback.py`. Flujo por instrumento, en cada
+vuelta del loop:
+
   1. Traer velas recientes de MT5.
-  2. Pedirle una senal a la estrategia.
-  3. Si hay senal de entrada, validarla contra el RiskManager
-     (kill switch diario, limite de posiciones simultaneas, sizing).
+  2. Pedirle una senal a la estrategia de ese instrumento.
+  3. Si hay senal de entrada, validarla contra el RiskManager (kill switch
+     diario compartido entre los dos instrumentos, limite de posiciones
+     abiertas PROPIO de ese instrumento, sizing).
   4. Enviar la orden (o simularla, si DRY_RUN=true).
 
 Uso:
@@ -25,74 +30,64 @@ from src.types import Signal, TradeOrder
 
 POLL_INTERVAL_SECONDS = 30
 
-# XAU/USD con lote minimo 0.01 arriesga aprox. lo mismo en USD que la
-# distancia del SL en dolares (ver seccion 4 del sistema y la conversacion
-# con el usuario del 10/09/2026: con un SL tipico de ATR H1 de ~$15-30,
-# el lote minimo por si solo ya implica 4-7% de riesgo sobre una cuenta de
-# $400, muy por encima del 1-2% objetivo). Para que el lote minimo respete
-# un riesgo objetivo de ~1.5% hace falta un capital de este orden. Hasta
-# entonces, XAUUSD queda fuera del bot automatico (RiskManager lo seguiria
-# bloqueando en cuenta real via enforce_min_lot_policy, pero mejor ni
-# arrancarlo: en BTC/USD el lote minimo si calza con el riesgo objetivo).
-XAUUSD_MIN_RECOMMENDED_BALANCE = 1500.0
-
-# Sufijo "m": la cuenta demo del usuario es tipo Standard
-# (Exness-MT5Trial11), y asi nombra los simbolos esa cuenta - verificado
-# en Market Watch el 10/09/2026 (XAUUSDm, BTCUSDm, no XAUUSD/BTCUSD a
-# secas). Si se cambia de cuenta/tipo, revisar el sufijo real en MT5
-# antes de asumir que sigue siendo "m".
+# Sufijo "m": la cuenta demo del usuario (Standard, Exness-MT5Trial11) nombra
+# los simbolos asi - verificado en Market Watch el 10/09/2026. LA CUENTA REAL
+# PUEDE SER DE OTRO TIPO: antes de correr el bot en real, revisar en su
+# Market Watch como se llaman ahi XAUUSD y BTCUSD exactamente y actualizar
+# estas dos constantes si hace falta.
 XAUUSD_SYMBOL = "XAUUSDm"
 BTCUSD_SYMBOL = "BTCUSDm"
 
 
-def build_strategy() -> StructuralPullbackStrategy:
-    # Sistema estructural con pullback (seccion 10 del documento de
-    # especificacion), sin el filtro de tendencia de 4H y sin el sistema
-    # de reversion por RSI extremo en 1H (quedan para una siguiente etapa).
-    # BTC/USD como simbolo por defecto: es el unico de los dos donde el
-    # lote minimo del broker permite respetar el 1-2% de riesgo objetivo
-    # con un capital de ~$400 (ver XAUUSD_MIN_RECOMMENDED_BALANCE arriba).
-    return StructuralPullbackStrategy(symbol=BTCUSD_SYMBOL, timeframe="H1")
+def build_strategies() -> list[StructuralPullbackStrategy]:
+    # Metodologia v2 (seccion 4 del sistema, 14/09/2026) para los dos
+    # instrumentos. El limite dinamico de riesgo de Oro (seccion 3.2: solo
+    # tomar señales cuyo SL tecnico entre en el % de riesgo objetivo al lote
+    # minimo del broker) no se hardcodea aca - lo aplica RiskManager en cada
+    # señal, recalculado sobre el balance real de la cuenta en ese momento.
+    return [
+        StructuralPullbackStrategy(symbol=BTCUSD_SYMBOL, timeframe="H1"),
+        StructuralPullbackStrategy(symbol=XAUUSD_SYMBOL, timeframe="H1"),
+    ]
 
 
 def run() -> None:
     setup_logging()
     config = load_config()
-    strategy = build_strategy()
+    strategies = build_strategies()
 
     client = MT5Client(config.mt5)
     risk_manager = RiskManager(config.risk)
 
     logger.info(
-        "Arrancando bot | dry_run={} | simbolo={} | timeframe={}",
+        "Arrancando bot | dry_run={} | simbolos={} | timeframe=H1 | riesgo_por_operacion={}%",
         config.dry_run,
-        strategy.symbol,
-        strategy.timeframe,
+        [s.symbol for s in strategies],
+        config.risk.risk_per_trade_pct,
     )
     if not config.dry_run:
         logger.warning("MODO REAL: el bot va a enviar ordenes reales al broker.")
 
     client.connect()
-    if strategy.symbol == XAUUSD_SYMBOL:
-        account = client.get_account_info()
-        if account.balance < XAUUSD_MIN_RECOMMENDED_BALANCE:
-            logger.warning(
-                "XAUUSD con balance ${:.0f}: el lote minimo del broker va a forzar "
-                "un riesgo real muy por encima del objetivo en casi todas las "
-                "operaciones (ver seccion 4 del sistema). Recomendado: usar BTCUSD "
-                "hasta alcanzar ~${:.0f} de capital, o confirmar con Exness si hay "
-                "una cuenta con lote minimo mas chico para Oro.",
-                account.balance,
-                XAUUSD_MIN_RECOMMENDED_BALANCE,
+    for strategy in strategies:
+        if strategy.symbol == XAUUSD_SYMBOL:
+            logger.info(
+                "{}: el bot descarta automaticamente cualquier señal cuyo Stop Loss "
+                "tecnico, al lote minimo del broker, fuerce mas del {}% de riesgo real "
+                "sobre el balance actual de la cuenta (seccion 3.2 del sistema, "
+                "14/09/2026) - no hace falta ningun ajuste manual si cambia el capital.",
+                strategy.symbol,
+                config.risk.risk_per_trade_pct,
             )
     try:
         while True:
-            try:
-                iterate(client, strategy, risk_manager, config)
-            except RiskLimitExceeded as exc:
-                logger.warning("Operacion bloqueada por gestion de riesgo: {}", exc)
-            except Exception:
-                logger.exception("Error inesperado en la iteracion del bot.")
+            for strategy in strategies:
+                try:
+                    iterate(client, strategy, risk_manager, config)
+                except RiskLimitExceeded as exc:
+                    logger.warning("Operacion bloqueada por gestion de riesgo ({}): {}", strategy.symbol, exc)
+                except Exception:
+                    logger.exception("Error inesperado en la iteracion del bot ({}).", strategy.symbol)
             time.sleep(POLL_INTERVAL_SECONDS)
     except KeyboardInterrupt:
         logger.info("Bot detenido manualmente.")
@@ -102,8 +97,14 @@ def run() -> None:
 
 def iterate(client: MT5Client, strategy, risk_manager: RiskManager, config: AppConfig) -> None:
     account = client.get_account_info()
+    # Kill switch diario: comparte el mismo contador de PnL realizado entre
+    # los dos instrumentos (es un limite de cuenta, no por simbolo).
     risk_manager.check_daily_loss_limit(account.balance)
-    risk_manager.check_open_positions_limit(account.open_positions)
+    # Limite de posiciones abiertas: PROPIO de este instrumento (14/09/2026,
+    # decision explicita del usuario) - una señal de Oro no se pierde porque
+    # BTC tenga una posicion abierta, y viceversa.
+    open_positions = client.get_open_positions_count(strategy.symbol)
+    risk_manager.check_open_positions_limit(open_positions)
 
     data = client.get_rates(strategy.symbol, strategy.timeframe)
     signal = strategy.generate_signal(data)
@@ -111,8 +112,8 @@ def iterate(client: MT5Client, strategy, risk_manager: RiskManager, config: AppC
         return
 
     # La vela de confirmacion del setup ya cerro (el bot solo mira velas
-    # cerradas) -> la orden siempre es de mercado, nunca pendiente
-    # (ver limitacion documentada en structural_pullback.py).
+    # cerradas) -> la orden siempre es de mercado, nunca pendiente (decision
+    # tomada el 14/09/2026: ver docstring de structural_pullback.py).
     entry_price = data["close"].iloc[-1]
     sl_price = strategy.stop_loss_price(data, signal)
     tp_price = strategy.take_profit_price(data, signal)
@@ -129,8 +130,11 @@ def iterate(client: MT5Client, strategy, risk_manager: RiskManager, config: AppC
     )
     # Riesgo real vs. objetivo se verifica ACA, contra los datos que reporta
     # el broker (specs y account.balance) - nunca contra un calculo hecho
-    # por separado. Bloquea en cuenta real si el lote minimo fuerza mas
-    # riesgo del configurado (seccion 4 del sistema); en demo solo loguea.
+    # por separado (seccion 3 del sistema). Bloquea en cuenta real si el
+    # lote minimo fuerza mas riesgo del configurado (tipicamente Oro); en
+    # demo solo loguea. Esto es lo que impone en la practica el limite de
+    # 13 puntos de SL de la seccion 3.2, recalculado solo con el balance
+    # real de la cuenta - no un numero fijo en el codigo.
     risk_manager.enforce_min_lot_policy(size_result, is_real_account=config.is_real_account_server)
 
     order = TradeOrder(

@@ -1,54 +1,61 @@
-"""Estrategia estructural con pullback (seccion 10 del sistema, version 2).
+"""Estrategia de entrada — Metodologia v2 (cuenta real, BTC + Oro, 14/09/2026).
 
-Traduce a codigo el pseudocodigo "resumen ejecutable para el bot":
+Reemplaza el enfoque anterior (v1, "entrar en la vela de ruptura", con cruce
+de RSI(14) simplemente por el nivel 50) por la metodologia documentada en la
+seccion 4 del sistema de trading vigente. Confirmada con las dos primeras
+operaciones reales que la aplicaron completa: BTC +$11.00 (11/09/2026) y
+Oro +$134.07 (14/09/2026), ambas con Take Profit.
 
-  1. Detectar ruptura/rebote reciente desde un nivel estructural.
-  2. NO entrar en la vela de impulso.
-  3. Esperar el pullback de vuelta hacia el nivel.
-  4. Exigir vela de rechazo (martillo / estrella fugaz segun direccion)
-     seguida de una vela de confirmacion que cierre a favor de la operacion.
-  5. Exigir que el RSI(14) cruce el nivel 50 en la direccion de la operacion
-     entre esas dos velas.
-  6. SL segun ATR(10-14) o el extremo real del pullback (el que sea mas
-     conservador), con margen.
-  7. TP en el siguiente nivel estructural relevante (o un multiplo de
-     riesgo si no hay nivel util mas adelante).
+Traduce a codigo estos 4 requisitos, que tienen que cumplirse los 4 a la vez
+(seccion 4.1: "el analisis combina 4 elementos siempre: estructura de precio,
+volumen, RSI, patrones de velas japonesas"):
 
-Simplificaciones deliberadas respecto al proceso manual (documentadas para
-que se puedan ajustar con el backtest, no son "gratis"):
+  1. Nivel tecnico relevante tocado (estructura de precio) - igual que v1:
+     `src/levels.py`, manuales primero (config/levels.json), fractales como
+     respaldo.
+  2. Extremo de RSI real: el RSI(14) tuvo que haber cruzado por debajo de 30
+     (sobreventa) o por encima de 70 (sobrecompra) en algun momento reciente
+     - no cualquier cruce por 50 como en v1.
+  3. Giro confirmado del RSI: no alcanza con tocar el extremo, el RSI ya
+     tiene que haber vuelto a cruzar el umbral (30/70) para el momento de la
+     vela de confirmacion. En los casos reales el giro ocurre varias velas
+     antes de la entrada (ej. "RSI ~21, recuperacion sostenida con RSI en
+     50s" en la operacion de Oro del 14/09) - por eso el cruce se busca en
+     una ventana (`extreme_lookback`), no exigiendolo en la vela de rechazo
+     misma.
+  4. Vela de rechazo (martillo/estrella fugaz, igual que v1) + vela de
+     confirmacion que cierre a favor - el mismo par de velas adyacentes de
+     v1, pero ahora ademas se le exige volumen por encima del promedio
+     reciente en la vela de rechazo (proxy de "volumen fuerte confirmado"
+     mencionado en el historial real). Si los datos no traen columna de
+     volumen (tick_volume/volume/real_volume - tipico en backtests con CSV
+     de Twelve Data, que no la incluyen), este chequeo no bloquea: no hay
+     forma de exigir algo que no esta en los datos. El bot en vivo si recibe
+     `tick_volume` de MT5 en cada vela, asi que en produccion el chequeo
+     queda activo.
 
-  - "Ruptura o rebote reciente" se aproxima como: el nivel estuvo dentro
-    de la distancia de proximidad (en ATR) de alguna vela en la ventana
-    de `lookback_candles` anteriores a la vela de rechazo, Y la vela de
-    rechazo vuelve a testear ese mismo nivel. No se distingue formalmente
-    entre "ruptura" y "rebote" (ver seccion 5.4/10 del documento).
-  - El bot solo evalua velas ya cerradas, nunca la vela en formacion. Por
-    construccion, esto hace que la unica orden que emite sea de tipo
-    Market (la vela de confirmacion ya cerro) - la variante con ordenes
-    Limit sobre el pullback en formacion (seccion 6) no esta implementada
-    en este loop automatico.
-  - No hay filtro de tendencia mayor en 4H (se decidio arrancar sin el y
-    sumarlo despues de validar el sistema base).
-  - Los niveles se toman de `src/levels.py`: manuales primero
-    (config/levels.json), fractales automaticos como respaldo.
+Decisiones de arquitectura tomadas el 14/09/2026 (con el usuario, antes de
+tocar cuenta real - ver conversacion o CLAUDE.md):
 
-Ajustes del 10/09/2026 (para subir la frecuencia de señales, muy baja en la
-verificacion contra el registro real de operaciones):
+  - Se sigue mandando orden de MERCADO en la vela de confirmacion ya cerrada,
+    no Buy Stop/Sell Stop pendiente. El bot solo actua sobre velas cerradas,
+    asi que en la practica ya entra "despues" de que el rebote arranco -
+    similar en espiritu a un Stop, sin agregar la complejidad operacional
+    (colocar/vigilar/cancelar ordenes pendientes) de hacerlo literal.
+  - Riesgo por operacion: 2% fijo (antes 1.5%), igual para BTC y Oro. Con
+    $650 de capital esto reproduce el limite de 13 puntos de SL para Oro
+    del ejemplo de la seccion 3.2 del sistema. Ese limite NO esta
+    hardcodeado aca: surge solo de `RiskManager.calculate_position_size` +
+    `enforce_min_lot_policy`, que en cuenta real bloquea cualquier señal
+    cuyo SL tecnico, al lote minimo del broker, fuerce mas del 2% de riesgo
+    real - se recalcula solo si cambia el capital, tal como pide la
+    seccion 3 ("recalcular si el capital cambia").
 
-  1. Se saco el requisito de que la vela de confirmacion cierre mas alla
-     del extremo de la vela de rechazo. Ese requisito no esta en el texto
-     de la seccion 5 (que solo pide "cierre a favor de la direccion
-     esperada") y era redundante con el cruce de RSI.
-  2. Se relajo la geometria de la vela de rechazo: `rejection_wick_ratio`
-     baja de 2.0x (definicion "de manual" en candles.py) a 1.5x por
-     defecto. Un martillo/estrella fugaz de manual es raro en velas reales
-     de 1H; exigir 2x dejaba pasar casi todos los rechazos legitimos. Esta
-     si es una condicion mencionada explicitamente en la seccion 3.4 del
-     sistema, asi que se toco con mas cuidado que la anterior - se relajo
-     el umbral, no se elimino el requisito.
-
-El nivel relevante, el cruce de RSI y la relacion riesgo/beneficio del TP
-se mantienen sin cambios.
+SL/TP: sin cambios respecto a v1. El SL se calibra al ATR(14) de las
+ultimas velas o al extremo real del pullback (el que sea mas conservador),
+tal como pide la seccion 5 del sistema. El TP va al siguiente nivel
+estructural, o a un multiplo de riesgo si ese nivel da mala relacion
+riesgo/beneficio.
 """
 from __future__ import annotations
 
@@ -62,6 +69,8 @@ from src.indicators import atr, rsi
 from src.levels import DEFAULT_LEVELS_PATH, get_levels_for_symbol, nearest_level_beyond_price
 from src.strategy_base import Strategy
 from src.types import Signal
+
+_VOLUME_COLUMNS = ("tick_volume", "volume", "real_volume")
 
 
 @dataclass(frozen=True)
@@ -86,6 +95,11 @@ class StructuralPullbackStrategy(Strategy):
         min_risk_reward: float = 1.5,
         fallback_rr_multiple: float = 2.0,
         rejection_wick_ratio: float = 1.5,
+        rsi_oversold: float = 30.0,
+        rsi_overbought: float = 70.0,
+        extreme_lookback: int = 10,
+        volume_ma_period: int = 20,
+        volume_confirmation_mult: float = 1.0,
     ) -> None:
         self.symbol = symbol
         self.timeframe = timeframe
@@ -98,7 +112,14 @@ class StructuralPullbackStrategy(Strategy):
         self.sl_atr_margin_mult = sl_atr_margin_mult
         self.min_risk_reward = min_risk_reward
         self.fallback_rr_multiple = fallback_rr_multiple
-        self.min_history = max(atr_period, rsi_period) + lookback_candles + 5
+        self.rsi_oversold = rsi_oversold
+        self.rsi_overbought = rsi_overbought
+        self.extreme_lookback = extreme_lookback
+        self.volume_ma_period = volume_ma_period
+        self.volume_confirmation_mult = volume_confirmation_mult
+        self.min_history = (
+            max(atr_period, rsi_period, extreme_lookback) + lookback_candles + 5
+        )
 
         self._cached_time = None
         self._cached_setup: _Setup | None = None
@@ -151,6 +172,7 @@ class StructuralPullbackStrategy(Strategy):
             return None
 
         rsi_series = rsi(data["close"], period=self.rsi_period)
+        volume_series = self._volume_series(data)
 
         confirmation_idx = len(data) - 1
         rejection_idx = confirmation_idx - 1
@@ -160,9 +182,8 @@ class StructuralPullbackStrategy(Strategy):
         confirmation = data.iloc[confirmation_idx]
         rejection = data.iloc[rejection_idx]
 
-        rsi_prev = rsi_series.iloc[rejection_idx]
-        rsi_curr = rsi_series.iloc[confirmation_idx]
-        if pd.isna(rsi_prev) or pd.isna(rsi_curr):
+        rsi_confirmation = rsi_series.iloc[confirmation_idx]
+        if pd.isna(rsi_confirmation):
             return None
 
         for direction in (Signal.BUY, Signal.SELL):
@@ -170,7 +191,9 @@ class StructuralPullbackStrategy(Strategy):
                 continue
             if not self._is_rejection_candle(rejection, direction):
                 continue
-            if not self._rsi_crossed_50(rsi_prev, rsi_curr, direction):
+            if not self._rsi_extreme_and_turn(rsi_series, rejection_idx, confirmation_idx, direction):
+                continue
+            if not self._volume_confirmed(volume_series, rejection_idx):
                 continue
 
             level = self._find_pullback_level(data, levels, rejection_idx, direction, current_atr)
@@ -187,31 +210,72 @@ class StructuralPullbackStrategy(Strategy):
         return None
 
     def _is_rejection_candle(self, candle: pd.Series, direction: Signal) -> bool:
-        # Martillo para pullback alcista, estrella fugaz para pullback bajista
-        # (seccion 3.4 y 5, version 2: "vela de rechazo tipo martillo/estrella
-        # fugaz segun direccion"). El ratio mecha/cuerpo es configurable
-        # (rejection_wick_ratio, default 1.5x en vez del 2.0x "de manual de
-        # texto" de candles.py) porque en velas reales de 1H rara vez se ve
-        # un martillo perfecto de 2x; exigirlo dejaba pasar muy pocos setups.
+        # Martillo para reversion alcista, estrella fugaz para reversion
+        # bajista (seccion 4, punto 4: "vela de rechazo... mecha en la
+        # direccion contraria al movimiento previo, con cierre recuperando
+        # parte del rango"). Ratio mecha/cuerpo configurable (1.5x default,
+        # ver v1 para el porque de ese valor en vez del 2.0x "de manual").
         if direction == Signal.BUY:
             return is_hammer(candle, min_wick_to_body=self.rejection_wick_ratio)
         return is_shooting_star(candle, min_wick_to_body=self.rejection_wick_ratio)
 
     @staticmethod
     def _is_confirmation_candle(candle: pd.Series, direction: Signal) -> bool:
-        # Textual del sistema (seccion 5, v2): "vela que confirme la reversion
-        # (cierre a favor de la direccion esperada)" - nada mas estricto que
-        # esto. Antes se exigia ademas que cerrara mas alla del extremo de la
-        # vela de rechazo; se saco (10/09/2026) por ser mas estricto que la
-        # regla documentada y redundante con el cruce de RSI (las dos velan
-        # por lo mismo: que el momentum ya giro).
+        # Vela que cierra a favor de la direccion esperada - sin exigencia
+        # extra sobre cuanto tiene que cerrar (ver v1 para el historial de
+        # por que se saco ese requisito).
         return candle["close"] > candle["open"] if direction == Signal.BUY else candle["close"] < candle["open"]
 
-    @staticmethod
-    def _rsi_crossed_50(rsi_prev: float, rsi_curr: float, direction: Signal) -> bool:
+    def _rsi_extreme_and_turn(
+        self, rsi_series: pd.Series, rejection_idx: int, confirmation_idx: int, direction: Signal
+    ) -> bool:
+        """Puntos 2 y 3 de la seccion 4: extremo real tocado + giro ya confirmado.
+
+        Busca, en una ventana de `extreme_lookback` velas terminando en la
+        vela de rechazo (inclusive), si el RSI llego a tocar la zona extrema
+        (<=30 sobreventa o >=70 sobrecompra). Si la toco, exige que para la
+        vela de confirmacion el RSI ya haya cruzado de vuelta el umbral (no
+        que siga en la zona extrema). No se exige que el cruce ocurra
+        justo entre rechazo y confirmacion: en los casos reales la
+        recuperacion del RSI es progresiva a lo largo de varias velas antes
+        de que aparezca el patron de rechazo/confirmacion sobre el nivel.
+        """
+        window_start = max(0, confirmation_idx - self.extreme_lookback)
+        window = rsi_series.iloc[window_start : rejection_idx + 1]
+        if window.empty or window.isna().all():
+            return False
+        rsi_confirmation = rsi_series.iloc[confirmation_idx]
+        if pd.isna(rsi_confirmation):
+            return False
         if direction == Signal.BUY:
-            return rsi_prev <= 50 and rsi_curr > 50
-        return rsi_prev >= 50 and rsi_curr < 50
+            extreme_touched = (window <= self.rsi_oversold).any()
+            already_turned = rsi_confirmation > self.rsi_oversold
+        else:
+            extreme_touched = (window >= self.rsi_overbought).any()
+            already_turned = rsi_confirmation < self.rsi_overbought
+        return bool(extreme_touched and already_turned)
+
+    @staticmethod
+    def _volume_series(data: pd.DataFrame) -> pd.Series | None:
+        for column in _VOLUME_COLUMNS:
+            if column in data.columns:
+                return data[column].astype(float)
+        return None
+
+    def _volume_confirmed(self, volume_series: pd.Series | None, idx: int) -> bool:
+        # Punto 4.1: "volumen" como uno de los 4 elementos que siempre se
+        # combinan. Si no hay columna de volumen en los datos (backtests
+        # sobre CSV de Twelve Data, que no la trae) no se puede exigir nada
+        # -> no bloquea. En vivo, MT5 siempre entrega tick_volume.
+        if volume_series is None:
+            return True
+        volume_ma = volume_series.rolling(
+            self.volume_ma_period, min_periods=max(2, self.volume_ma_period // 2)
+        ).mean()
+        ma_at_idx = volume_ma.iloc[idx]
+        if pd.isna(ma_at_idx) or ma_at_idx <= 0:
+            return True
+        return volume_series.iloc[idx] >= self.volume_confirmation_mult * ma_at_idx
 
     def _find_pullback_level(
         self,

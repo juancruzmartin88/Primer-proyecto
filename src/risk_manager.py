@@ -141,8 +141,15 @@ class RiskManager:
             )
 
     def check_open_positions_limit(self, current_open_positions: int) -> None:
+        """Limite de posiciones abiertas simultaneas.
+
+        Desde el 14/09/2026 (BTC + Oro en simultaneo) el llamador pasa el
+        conteo de posiciones abiertas de UN solo instrumento (no el total de
+        la cuenta) - `max_open_positions` se aplica por instrumento, no de
+        forma global. Ver `src/bot.py::iterate`.
+        """
         if current_open_positions >= self.config.max_open_positions:
             raise RiskLimitExceeded(
-                f"Ya hay {current_open_positions} posiciones abiertas, "
-                f"el limite configurado es {self.config.max_open_positions}."
+                f"Ya hay {current_open_positions} posiciones abiertas para este "
+                f"instrumento, el limite configurado es {self.config.max_open_positions}."
             )
