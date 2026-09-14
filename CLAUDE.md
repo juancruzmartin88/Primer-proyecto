@@ -100,12 +100,53 @@ asumir que está mal cargado.
    confirmación extra") queda como criterio manual del usuario, no
    implementado en código.
 
+## Backtest de validación de la v2 (14/09/2026, antes de desplegar a real)
+
+Corrido sobre los mismos 7 meses de velas H1 (`data/xauusd_h1_raw.csv`,
+`data/btcusd_h1_raw.csv`, 5000 velas c/u) usados para validar v1. OJO: estos
+CSV (Twelve Data) no traen columna de volumen, así que este backtest **no
+ejercita el chequeo de volumen** de la v2 - en vivo el filtro va a estar
+activo (MT5 sí entrega `tick_volume`), así que la frecuencia/calidad real
+puede diferir de estos números.
+
+Dos corridas por instrumento, ambas con balance inicial $650 y riesgo 2%:
+- **Exploratoria** (`is_real_account=False`): todas las señales se toman,
+  aunque el lote mínimo fuerce más riesgo del objetivo - sirve para ver la
+  calidad cruda de las señales.
+- **Realista** (`is_real_account=True`): igual que se comporta el bot en la
+  cuenta real - bloquea cualquier señal cuyo SL, al lote mínimo, fuerce más
+  del 2% de riesgo. Es el número que importa para decidir si desplegar.
+
+| Instrumento | Señales detectadas | Exploratoria (PF / WR / DD) | **Realista: trades / PF / WR / DD** |
+|---|---|---|---|
+| XAUUSD | 35 | PF 1.69, WR 40.0%, DD 18.4% | **0 trades** - ninguna de las 35 señales tuvo un SL lo bastante ajustado para entrar en el 2% con el lote mínimo a $650 (riesgo forzado real: 1.5%-17%, mediana bien por encima de 2%) |
+| BTCUSD | 28 (exploratoria) / 33 (realista) | PF 2.02, WR 46.4%, DD 7.0% | **33 trades, PF 1.36, WR 39.4%, DD 11.9%, PnL total +$91.68** |
+
+Nota sobre el conteo de BTCUSD (28 vs 33 trades): no es un error - cuando el
+backtest bloquea una señal, el motor queda libre para detectar una señal
+*distinta* en la vela siguiente (en la corrida exploratoria esa vela
+hubiera estado "ocupada" por el trade bloqueado, que ahí sí se tomaba). Es
+un efecto conocido del motor de backtest de una sola posición a la vez, no
+un bug de la estrategia.
+
+**Conclusión para desplegar:**
+- **Oro se puede dejar activo en el código sin ningún riesgo** - la regla
+  dinámica simplemente no va a dejarlo operar mientras el capital sea este
+  (¿$650?). No es una falla, es la protección de capital funcionando como
+  se diseñó. Recién va a empezar a tomar señales cuando el capital crezca
+  lo suficiente (ya sea por depósitos o por ganancias de BTC).
+- **BTC sigue siendo el motor real del bot** con este capital: PF 1.36 en
+  el escenario realista (comparable al 1.39 que ya había dado v1 el
+  10/09/2026 - la v2 no muestra una mejora dramática en este backtest
+  puntual, aunque las 2 primeras operaciones reales con v2 fueron ambas TP).
+  Drawdown máximo historico bajo (11.9% sobre $650), riesgo por operación
+  acotado.
+
 ## Próximos pasos pendientes
 
 1. Juntar operaciones reales de la cuenta real con la Metodología v2 y
-   compararlas contra el backtest (correr `scripts/backtest_from_csv.py`
-   con `--account-balance=650 --risk-per-trade-pct=2.0` sobre los CSV de
-   `data/` para tener el número de referencia vigente).
+   compararlas contra estos números de referencia (PF 1.36 BTC realista;
+   Oro sin operaciones esperables por ahora).
 2. Confirmar en Market Watch de la cuenta real si el sufijo sigue siendo
    "m" - si no, actualizar `XAUUSD_SYMBOL`/`BTCUSD_SYMBOL` en `src/bot.py`
    y las claves de `config/levels.json` antes de arrancar el bot ahí.

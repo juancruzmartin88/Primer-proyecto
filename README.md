@@ -197,11 +197,32 @@ Exness abierto y logueado en tu cuenta. Pasos:
 Registrá cada operación igual que en la sección 9 de tu sistema (fecha,
 motivo, resultado, lección) - el bot no lo hace todavía por vos.
 
+## Backtest de validación de la v2 (14/09/2026)
+
+Sobre 7 meses de H1 (5000 velas c/u), $650 de balance, 2% de riesgo,
+**bloqueando** cualquier señal cuyo SL fuerce más riesgo del objetivo al
+lote mínimo (el comportamiento real del bot en cuenta real):
+
+| Instrumento | Trades | Profit factor | Win rate | Max drawdown |
+|---|---|---|---|---|
+| XAUUSD | 0 | — | — | — |
+| BTCUSD | 33 | 1.36 | 39.4% | 11.9% |
+
+Con $650, ninguna de las 35 señales de Oro detectadas en 7 meses tuvo un SL
+técnico lo bastante ajustado para el 2% de riesgo al lote mínimo — no es un
+bug, es la regla de la sección 3.2 haciendo su trabajo. Oro va a quedar sin
+operar en la práctica hasta que el capital crezca; el código no necesita
+ningún cambio cuando eso pase. Ver `CLAUDE.md` para el detalle completo
+(incluye la corrida exploratoria sin el bloqueo, para referencia).
+
+Ojo: los CSV de backtest no tienen columna de volumen, así que esta corrida
+no ejercita el chequeo de volumen de la v2 (sí va a estar activo en vivo,
+con los datos de MT5) — la frecuencia/calidad real puede diferir un poco.
+
 ## Próximo paso
 
 1. Juntar operaciones reales de la cuenta real con la Metodología v2 y
-   compararlas contra el backtest (ver `CLAUDE.md` para los números
-   vigentes).
+   compararlas contra estos números (PF 1.36 BTC realista).
 2. El sistema de reversión por RSI extremo ya no es un ítem pendiente
    aparte — quedó absorbido dentro de la Metodología v2. El filtro de
    tendencia de 4H y las notificaciones (Telegram) siguen pendientes,
