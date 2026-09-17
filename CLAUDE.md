@@ -13,7 +13,8 @@ La cuenta demo (`198944861`, `Exness-MT5Trial11`, $400, solo BTCUSDm) queda
 como referencia histórica — el `.env` de producción ahora apunta a la
 cuenta real.
 
-- Capital real: ~$650 USD (depósito completándose el 15/09/2026).
+- Capital real: ~$654.77 USD (depósito completado el 15/09/2026; sufijo "m"
+  reverificado en la cuenta real el 16/09/2026, coincide con la demo).
 - Símbolos operados: **`BTCUSDm` y `XAUUSDm` en simultáneo** (el sufijo "m"
   hay que reverificarlo en el Market Watch de la cuenta real — puede no
   coincidir con el de la demo Standard, ver decisión 3 más abajo).
@@ -60,10 +61,10 @@ asumir que está mal cargado.
    ~$650 esto equivale aproximadamente a exigir un SL técnico de ~13 puntos
    o menos en Oro.
 3. **Sufijo "m" en los símbolos**: verificado para la cuenta demo Standard
-   (`Exness-MT5Trial11`) el 10/09/2026. **Pendiente de reverificar en la
-   cuenta real** - el tipo de cuenta puede ser distinto y nombrar los
-   símbolos diferente. `src/bot.py` tiene las constantes
-   `XAUUSD_SYMBOL`/`BTCUSD_SYMBOL` para esto.
+   (`Exness-MT5Trial11`) el 10/09/2026, y **reverificado en la cuenta real
+   Standard (`Exness-MT5Real11`) el 16/09/2026** - coincide, sigue siendo
+   "m". `src/bot.py` tiene las constantes `XAUUSD_SYMBOL`/`BTCUSD_SYMBOL`
+   para esto, sin cambios.
 4. **Umbrales de la estrategia relajados el 10/09/2026** (siguen vigentes
    en v2, no se tocaron de nuevo): sin requisito de que la confirmación
    cierre más allá del extremo de la vela de rechazo, y
@@ -99,6 +100,20 @@ asumir que está mal cargado.
    macro - la sección 4.1 del sistema ("tras un shock macro, esperar
    confirmación extra") queda como criterio manual del usuario, no
    implementado en código.
+10. **Límite de tiempo máximo (sección 6.1) — implementado, pero APAGADO
+    (17/09/2026)**: motivado por una operación de BTC post-Fed (16/09) que
+    quedó abierta ~24hs lateralizando sin acercarse a TP/SL, cerrada manual
+    en apenas +$0.47. Se implementó `src/time_exit.py` (lógica pura,
+    testeada) + integración en `bot.py`/`mt5_client.py`, pero el backtest
+    sobre 7 meses de BTC (ver sección de abajo) mostró que **cualquier
+    umbral probado (4/8/12/24hs) empeora el profit factor entre 18% y
+    45%** frente a no tener ningún límite - corta operaciones lentas que
+    igual iban camino al TP (la asimetría ganancia grande/pérdida chica es
+    el motor del sistema). Decisión: se deja el código listo pero inerte
+    (`ENABLE_TIME_EXIT=false` en `.env`, default también en `config.py`) -
+    no activar sin volver a correr el backtest y mostrar una mejora real.
+    El caso puntual del 16/09 se interpretó como ruido normal del sistema,
+    no como una falla estructural a corregir.
 
 ## Backtest de validación de la v2 (14/09/2026, antes de desplegar a real)
 
@@ -142,20 +157,48 @@ un bug de la estrategia.
   Drawdown máximo historico bajo (11.9% sobre $650), riesgo por operación
   acotado.
 
+## Backtest del límite de tiempo máximo (17/09/2026, seccion 6.1) — RECHAZADO
+
+Corrido sobre BTCUSD, mismos 7 meses de H1, $654.77, riesgo 2%, modo
+realista (`is_real_account=True`, bloqueando exceso de riesgo igual que la
+cuenta real):
+
+| Configuración | Trades | Win rate | Profit factor | PnL total | % cerrados por tiempo |
+|---|---|---|---|---|---|
+| **Sin límite (actual)** | 36 | 44.4% | **1.73** | **+$194.24** | — |
+| 4hs (stall 0.5x ATR) | 42 | 52.4% | 1.37 | +$44.67 | 79% |
+| 4hs (stall 0.15x ATR, más laxo) | 42 | 50.0% | 1.35 | +$41.99 | 79% |
+| 8hs | 35 | 48.6% | 1.09 | +$15.28 | 60% |
+| 12hs | 34 | 47.1% | 1.07 | +$13.84 | 50% |
+| 24hs | 39 | 46.2% | 1.43 | +$113.00 | 23% |
+
+Ningún umbral probado mejora el resultado sin límite, y no hay una relación
+monotónica con las horas (8-12hs da peor resultado que 4hs). En la mayoría
+de los cierres forzados, la operación todavía no había llegado a TP ni a
+SL - simplemente porque muchas operaciones de este sistema tardan más de
+4-12hs en resolverse de forma normal. Cortarlas ahí elimina justo las
+ganancias grandes que sostienen la asimetría del sistema (ver sección 9 del
+registro: ganancia promedio TP ~$48 vs pérdida promedio SL ~$9).
+**Conclusión: no se activa.** Si en el futuro se quiere revisitar (por
+ejemplo si cambia el perfil de operaciones o el usuario lo pide de nuevo),
+el código está listo en `src/time_exit.py` + `run_backtest(enable_time_exit=...)`
+en `src/backtester.py` - hay que volver a correr el backtest antes de
+prender `ENABLE_TIME_EXIT=true`, no asumir que sigue siendo mala idea sin
+revalidar contra datos más recientes.
+
 ## Próximos pasos pendientes
 
 1. Juntar operaciones reales de la cuenta real con la Metodología v2 y
-   compararlas contra estos números de referencia (PF 1.36 BTC realista;
-   Oro sin operaciones esperables por ahora).
-2. Confirmar en Market Watch de la cuenta real si el sufijo sigue siendo
-   "m" - si no, actualizar `XAUUSD_SYMBOL`/`BTCUSD_SYMBOL` en `src/bot.py`
-   y las claves de `config/levels.json` antes de arrancar el bot ahí.
-3. Filtro de tendencia de 4H y notificaciones (ej. Telegram) siguen
+   compararlas contra estos números de referencia (PF 1.36 BTC realista al
+   14/09; PF 1.73 con la muestra ampliada del 17/09; Oro sin operaciones
+   esperables por ahora). Al 17/09/2026 hay 2 operaciones reales cerradas,
+   ambas BTC en positivo: +$9.96 (15/09) y +$0.47 (16-17/09, cierre manual
+   tras ~24hs de lateralización - el caso que motivó la sección 6.1).
+2. Filtro de tendencia de 4H y notificaciones (ej. Telegram) siguen
    pendientes de una siguiente iteración - no empezar sin que el usuario
    lo pida.
-4. El sistema de reversión por RSI extremo en 1H como estrategia SEPARADA
-   ya no es un pendiente: quedó absorbido dentro de la Metodología v2
-   (punto 1 de arriba).
+3. El sistema de reversión por RSI extremo en 1H como estrategia SEPARADA
+   ya no es un pendiente: quedó absorbido dentro de la Metodología v2.
 
 ## Cómo correr cosas
 
@@ -169,6 +212,6 @@ cd Primer-proyecto
 python -m src.bot
 ```
 
-Los tests (`pytest tests/ -v`, 38 tests) y los scripts de backtest
+Los tests (`pytest tests/ -v`, 44 tests) y los scripts de backtest
 (`scripts/backtest_from_csv.py`, `scripts/list_signals.py`) corren en
 cualquier entorno con las dependencias instaladas, no requieren MT5.

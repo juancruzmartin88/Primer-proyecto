@@ -107,14 +107,16 @@ def iterate(client: MT5Client, strategy, risk_manager: RiskManager, config: AppC
 
     data = client.get_rates(strategy.symbol, strategy.timeframe)
 
-    # Si el bot ya tiene una posicion propia abierta en este simbolo, esta
-    # vuelta del loop se dedica a gestionarla (limite de tiempo, seccion 6.1
-    # del sistema, 17/09/2026) en vez de buscar una señal nueva - mientras
-    # siga abierta, el limite de posiciones de abajo la bloquearia igual.
-    open_position = client.get_open_position_by_bot(strategy.symbol)
-    if open_position is not None:
-        _manage_open_position(client, strategy, open_position, data, config)
-        return
+    # Limite de tiempo maximo (seccion 6.1): APAGADO por defecto
+    # (`ENABLE_TIME_EXIT` no seteado o en false). El backtest del
+    # 17/09/2026 mostro que empeora el profit factor 18-45% frente a no
+    # tener ningun limite - se dejo el codigo listo pero inerte hasta que
+    # se revalide con otras condiciones. Ver CLAUDE.md.
+    if config.enable_time_exit:
+        open_position = client.get_open_position_by_bot(strategy.symbol)
+        if open_position is not None:
+            _manage_open_position(client, strategy, open_position, data, config)
+            return
 
     # Limite de posiciones abiertas: PROPIO de este instrumento (14/09/2026,
     # decision explicita del usuario) - una señal de Oro no se pierde porque

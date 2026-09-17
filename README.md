@@ -38,12 +38,13 @@ src/
     structural_pullback.py     # Estrategia real del sistema (Metodología v2 — ver sección "Estrategia" abajo)
     sma_crossover.py           # Estrategia de ejemplo, solo para referencia/tests del motor
   mt5_client.py                 # Wrapper sobre el paquete MetaTrader5
+  time_exit.py                    # Limite de tiempo maximo para posiciones abiertas (implementado, APAGADO — ver mas abajo)
   backtester.py                  # Motor de backtesting sobre datos históricos
   bot.py                          # Loop principal en vivo (demo o real) — BTC + Oro en simultáneo
 config/
   levels.json                     # Niveles estructurales cargados a mano, por símbolo
 tests/
-  test_indicators.py, test_candles.py, test_levels.py,
+  test_indicators.py, test_candles.py, test_levels.py, test_time_exit.py,
   test_risk_manager.py, test_backtester.py, test_structural_pullback.py
 ```
 
@@ -102,9 +103,14 @@ mala relación riesgo/beneficio — sin cambios respecto a la versión anterior.
   de la única lógica de entrada, así que el viejo plan de "sistema corto
   plazo aparte" queda absorbido acá, no pendiente.
 - **`XAUUSDm`/`BTCUSDm` son los dos símbolos que opera el bot** (`src/bot.py`).
-  El sufijo `"m"` depende del tipo de cuenta — **hay que reverificarlo en el
-  Market Watch de la cuenta real** antes de arrancar: puede no ser el mismo
-  que en la demo (Standard).
+  El sufijo `"m"` depende del tipo de cuenta — reverificado en la cuenta
+  real el 16/09/2026, coincide con la demo.
+- **Sin límite de tiempo máximo por posición** (`ENABLE_TIME_EXIT=false`).
+  Hay un límite de tiempo implementado (`src/time_exit.py`, sección 6.1 del
+  sistema) pero el backtest del 17/09/2026 mostró que empeora el profit
+  factor entre 18% y 45% frente a no tener ninguno — corta operaciones
+  lentas que igual iban camino al TP. Queda listo pero apagado; ver
+  `CLAUDE.md` para la tabla completa antes de activarlo.
 
 Estas son simplificaciones de un proceso que hasta ahora era discrecional
 — no una traducción literal perfecta. Ajustá los parámetros

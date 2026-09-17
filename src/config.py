@@ -74,6 +74,14 @@ class AppConfig:
     risk: RiskConfig
     dry_run: bool
     live_trading_confirmed: bool
+    # Limite de tiempo maximo (seccion 6.1, 17/09/2026): APAGADO por
+    # defecto. El backtest sobre 7 meses de BTC (17/09/2026) mostro que
+    # forzar el cierre a las 4/8/12/24hs empeora el profit factor entre
+    # 18% y 45% frente a no tener ningun limite (corta operaciones lentas
+    # que igual iban camino al TP) - se dejo el codigo listo en
+    # `src/time_exit.py` por si en el futuro cambian las condiciones, pero
+    # no se activa sin revalidar. Ver CLAUDE.md para el detalle completo.
+    enable_time_exit: bool
 
     @property
     def is_real_account_server(self) -> bool:
@@ -119,6 +127,7 @@ def load_config() -> AppConfig:
         risk=risk_config,
         dry_run=_get_bool("DRY_RUN", True),
         live_trading_confirmed=live_confirmed,
+        enable_time_exit=_get_bool("ENABLE_TIME_EXIT", False),
     )
     config.assert_safe_to_trade_live()
     return config
