@@ -18,6 +18,7 @@ from src.backtester import run_backtest
 from src.config import RiskConfig
 from src.risk_manager import RiskManager
 from src.strategies.structural_pullback import StructuralPullbackStrategy
+from src.time_exit import DEFAULT_MAX_HOURS_OPEN, DEFAULT_STALL_ATR_MULT
 
 
 def load_csv(path: str, sep: str) -> pd.DataFrame:
@@ -43,6 +44,10 @@ def main() -> None:
     parser.add_argument("--risk-per-trade-pct", type=float, default=2.0)
     parser.add_argument("--min-lot", type=float, default=0.01)
     parser.add_argument("--rejection-wick-ratio", type=float, default=1.5)
+    parser.add_argument("--is-real-account", action="store_true", help="Bloquea señales cuyo lote minimo fuerce mas riesgo del objetivo (seccion 3.2), igual que la cuenta real.")
+    parser.add_argument("--enable-time-exit", action="store_true", help="Simula el limite de tiempo maximo (seccion 6.1) sobre las operaciones abiertas.")
+    parser.add_argument("--max-hours-open", type=float, default=DEFAULT_MAX_HOURS_OPEN)
+    parser.add_argument("--stall-atr-mult", type=float, default=DEFAULT_STALL_ATR_MULT)
     args = parser.parse_args()
 
     data = load_csv(args.csv_path, args.sep)
@@ -84,10 +89,15 @@ def main() -> None:
         pip_value_per_lot=args.pip_value_per_lot,
         risk_manager=risk_manager,
         min_lot=args.min_lot,
-        is_real_account=False,  # backtest exploratorio: no bloquea por lote minimo
+        is_real_account=args.is_real_account,
+        enable_time_exit=args.enable_time_exit,
+        max_hours_open=args.max_hours_open,
+        stall_atr_mult=args.stall_atr_mult,
     )
+    tag = "real" if args.is_real_account else "exploratorio"
+    time_tag = f", limite {args.max_hours_open:.0f}hs" if args.enable_time_exit else ""
     print(
-        f"[Riesgo {args.risk_per_trade_pct:.1f}% sobre ${args.account_balance:.0f}] "
+        f"[Riesgo {args.risk_per_trade_pct:.1f}% sobre ${args.account_balance:.0f}, {tag}{time_tag}] "
         f"{risk_based_result.summary()}"
     )
 

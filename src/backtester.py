@@ -11,8 +11,10 @@ from dataclasses import dataclass, field
 import pandas as pd
 from loguru import logger
 
+from src.indicators import atr, rsi
 from src.risk_manager import RiskLimitExceeded, RiskManager
 from src.strategy_base import Strategy
+from src.time_exit import DEFAULT_MAX_HOURS_OPEN, DEFAULT_STALL_ATR_MULT, should_force_close
 from src.types import Signal
 
 
@@ -72,6 +74,9 @@ def run_backtest(
     min_lot: float = 0.01,
     lot_step: float = 0.01,
     is_real_account: bool = False,
+    enable_time_exit: bool = False,
+    max_hours_open: float = DEFAULT_MAX_HOURS_OPEN,
+    stall_atr_mult: float = DEFAULT_STALL_ATR_MULT,
 ) -> BacktestResult:
     """Recorre `data` vela a vela, simulando entradas/salidas de la estrategia.
 
@@ -95,6 +100,13 @@ def run_backtest(
     condiciones que la estrategia jamas va a tener disponibles quien
     corre en vivo. Como efecto secundario, tambien evita el costo O(n^2)
     de recalcular los indicadores sobre todo el historial acumulado.
+
+    `enable_time_exit` simula la regla de limite de tiempo de
+    `src.time_exit.should_force_close` (seccion 6.1 del sistema,
+    17/09/2026): si una posicion sigue abierta despues de `max_hours_open`
+    sin acercarse a TP/SL, se cierra al precio de cierre de esa vela. Usa
+    `rsi_period`/`atr_period` de la propia `strategy` para los indicadores
+    de la regla (los mismos que ya usa para generar señales).
     """
     result = BacktestResult(initial_balance=initial_balance)
     balance = initial_balance
@@ -115,13 +127,32 @@ def run_backtest(
                 if open_trade["signal"] == Signal.BUY
                 else candle["low"] <= open_trade["tp"]
             )
-            if hit_sl or hit_tp:
-                exit_price = open_trade["sl"] if hit_sl else open_trade["tp"]
+            forced_by_time = False
+            if not (hit_sl or hit_tp) and enable_time_exit:
+                rsi_series = rsi(window["close"], period=strategy.rsi_period)
+                atr_series = atr(window, period=strategy.atr_period)
+                current_rsi = rsi_series.iloc[-1]
+                current_atr = atr_series.iloc[-1]
+                if not pd.isna(current_rsi) and not pd.isna(current_atr):
+                    forced_by_time = should_force_close(
+                        direction=open_trade["signal"],
+                        entry_price=open_trade["entry"],
+                        entry_time=open_trade["entry_time"],
+                        current_time=candle["time"],
+                        current_price=candle["close"],
+                        current_rsi=current_rsi,
+                        current_atr=current_atr,
+                        max_hours_open=max_hours_open,
+                        stall_atr_mult=stall_atr_mult,
+                    )
+            if hit_sl or hit_tp or forced_by_time:
+                exit_price = open_trade["sl"] if hit_sl else open_trade["tp"] if hit_tp else candle["close"]
                 direction = 1 if open_trade["signal"] == Signal.BUY else -1
                 pips = (exit_price - open_trade["entry"]) / pip_size * direction
                 pnl = pips * pip_value_per_lot * open_trade["volume"]
                 balance += pnl
-                result.trades.append({**open_trade, "exit": exit_price, "pnl": pnl})
+                exit_reason = "sl" if hit_sl else "tp" if hit_tp else "tiempo"
+                result.trades.append({**open_trade, "exit": exit_price, "pnl": pnl, "exit_reason": exit_reason})
                 open_trade = None
             continue
 

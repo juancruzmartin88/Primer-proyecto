@@ -18,14 +18,18 @@ Uso:
 from __future__ import annotations
 
 import time
+from datetime import datetime, timezone
 
+import pandas as pd
 from loguru import logger
 
 from src.config import AppConfig, load_config
+from src.indicators import atr, rsi
 from src.logger_setup import setup_logging
-from src.mt5_client import MT5Client
+from src.mt5_client import MT5Client, OpenPosition
 from src.risk_manager import RiskLimitExceeded, RiskManager
 from src.strategies.structural_pullback import StructuralPullbackStrategy
+from src.time_exit import should_force_close
 from src.types import Signal, TradeOrder
 
 POLL_INTERVAL_SECONDS = 30
@@ -100,13 +104,26 @@ def iterate(client: MT5Client, strategy, risk_manager: RiskManager, config: AppC
     # Kill switch diario: comparte el mismo contador de PnL realizado entre
     # los dos instrumentos (es un limite de cuenta, no por simbolo).
     risk_manager.check_daily_loss_limit(account.balance)
+
+    data = client.get_rates(strategy.symbol, strategy.timeframe)
+
+    # Si el bot ya tiene una posicion propia abierta en este simbolo, esta
+    # vuelta del loop se dedica a gestionarla (limite de tiempo, seccion 6.1
+    # del sistema, 17/09/2026) en vez de buscar una señal nueva - mientras
+    # siga abierta, el limite de posiciones de abajo la bloquearia igual.
+    open_position = client.get_open_position_by_bot(strategy.symbol)
+    if open_position is not None:
+        _manage_open_position(client, strategy, open_position, data, config)
+        return
+
     # Limite de posiciones abiertas: PROPIO de este instrumento (14/09/2026,
     # decision explicita del usuario) - una señal de Oro no se pierde porque
-    # BTC tenga una posicion abierta, y viceversa.
+    # BTC tenga una posicion abierta, y viceversa. Cuenta tambien posiciones
+    # manuales del usuario en el mismo simbolo (seccion 3, "no abrir una
+    # segunda posicion sobre la misma tesis").
     open_positions = client.get_open_positions_count(strategy.symbol)
     risk_manager.check_open_positions_limit(open_positions)
 
-    data = client.get_rates(strategy.symbol, strategy.timeframe)
     signal = strategy.generate_signal(data)
     if signal not in (Signal.BUY, Signal.SELL):
         return
@@ -145,6 +162,43 @@ def iterate(client: MT5Client, strategy, risk_manager: RiskManager, config: AppC
         take_profit=tp_price,
     )
     client.send_order(order, dry_run=config.dry_run)
+
+
+def _manage_open_position(
+    client: MT5Client, strategy, position: OpenPosition, data: pd.DataFrame, config: AppConfig
+) -> None:
+    """Aplica el limite de tiempo maximo (seccion 6.1 del sistema,
+    17/09/2026) a una posicion que el bot mismo abrio. No toca posiciones
+    manuales del usuario (`get_open_position_by_bot` ya las excluye)."""
+    current_price = data["close"].iloc[-1]
+    rsi_series = rsi(data["close"], period=strategy.rsi_period)
+    atr_series = atr(data, period=strategy.atr_period)
+    current_rsi = rsi_series.iloc[-1]
+    current_atr = atr_series.iloc[-1]
+    if pd.isna(current_rsi) or pd.isna(current_atr):
+        return
+
+    now = datetime.now(timezone.utc)
+    if not should_force_close(
+        direction=position.signal,
+        entry_price=position.price_open,
+        entry_time=position.time_open,
+        current_time=now,
+        current_price=current_price,
+        current_rsi=current_rsi,
+        current_atr=current_atr,
+    ):
+        return
+
+    hours_open = (now - position.time_open).total_seconds() / 3600.0
+    logger.info(
+        "{}: cerrando posicion #{} por limite de tiempo (seccion 6.1) - "
+        "abierta hace {:.1f}hs sin avance claro hacia TP/SL.",
+        strategy.symbol,
+        position.ticket,
+        hours_open,
+    )
+    client.close_position(position, dry_run=config.dry_run)
 
 
 if __name__ == "__main__":

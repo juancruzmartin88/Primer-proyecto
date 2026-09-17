@@ -12,12 +12,22 @@ pueda usar sin tener el terminal instalado.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
 
 import pandas as pd
 from loguru import logger
 
 from src.config import MT5Config
 from src.types import Signal, TradeOrder
+
+# Magic number propio del bot: identifica sus ordenes/posiciones frente a
+# cualquier operacion manual del usuario en la misma cuenta. Se usa tanto
+# para enviar ordenes (`send_order`) como para decidir que posiciones puede
+# tocar el bot despues (`get_open_position_by_bot`, `close_position`) - una
+# posicion manual del usuario nunca tiene este magic, asi que el bot jamas
+# la cierra por su cuenta (seccion 6 del sistema: el cierre manual queda a
+# criterio del usuario, sin objecion del bot).
+BOT_MAGIC = 123456
 
 
 class MT5ConnectionError(Exception):
@@ -43,6 +53,20 @@ class SymbolTradeSpecs:
     pip_value_per_lot: float
     min_lot: float
     lot_step: float
+
+
+@dataclass(frozen=True)
+class OpenPosition:
+    """Posicion abierta por el bot mismo (ver `BOT_MAGIC`)."""
+
+    ticket: int
+    symbol: str
+    signal: Signal
+    volume: float
+    price_open: float
+    time_open: datetime
+    stop_loss: float
+    take_profit: float
 
 
 class MT5Client:
@@ -123,6 +147,66 @@ class MT5Client:
         positions = mt5.positions_get(symbol=symbol)
         return len(positions) if positions is not None else 0
 
+    def get_open_position_by_bot(self, symbol: str) -> OpenPosition | None:
+        """La posicion abierta que el bot mismo abrio para este simbolo (por
+        `BOT_MAGIC`), o None si no hay. Si el usuario tiene una posicion
+        manual en el mismo simbolo, esto la ignora a proposito - el bot
+        nunca gestiona (ni cierra por tiempo) una operacion que no abrio el.
+        """
+        mt5 = self._mt5_module()
+        positions = mt5.positions_get(symbol=symbol)
+        if not positions:
+            return None
+        for p in positions:
+            if p.magic != BOT_MAGIC:
+                continue
+            direction = Signal.BUY if p.type == mt5.POSITION_TYPE_BUY else Signal.SELL
+            return OpenPosition(
+                ticket=p.ticket,
+                symbol=p.symbol,
+                signal=direction,
+                volume=p.volume,
+                price_open=p.price_open,
+                time_open=datetime.fromtimestamp(p.time, tz=timezone.utc),
+                stop_loss=p.sl,
+                take_profit=p.tp,
+            )
+        return None
+
+    def close_position(self, position: OpenPosition, *, dry_run: bool) -> dict:
+        """Cierra una posicion abierta por el bot (limite de tiempo, seccion
+        6.1 del sistema) con una orden de mercado en sentido contrario."""
+        if dry_run:
+            logger.info("[DRY_RUN] Se simularia el cierre de la posicion {} ({})", position.ticket, position.symbol)
+            return {"dry_run": True, "position": position}
+
+        mt5 = self._mt5_module()
+        opposite_type = mt5.ORDER_TYPE_SELL if position.signal == Signal.BUY else mt5.ORDER_TYPE_BUY
+        symbol_info_tick = mt5.symbol_info_tick(position.symbol)
+        if symbol_info_tick is None:
+            raise MT5ConnectionError(f"No se pudo obtener el precio actual de {position.symbol}")
+        price = symbol_info_tick.bid if position.signal == Signal.BUY else symbol_info_tick.ask
+
+        request = {
+            "action": mt5.TRADE_ACTION_DEAL,
+            "symbol": position.symbol,
+            "volume": position.volume,
+            "type": opposite_type,
+            "position": position.ticket,
+            "price": price,
+            "deviation": 10,
+            "magic": BOT_MAGIC,
+            "comment": "cierre por limite de tiempo (seccion 6.1)",
+            "type_time": mt5.ORDER_TIME_GTC,
+            "type_filling": mt5.ORDER_FILLING_IOC,
+        }
+        result = mt5.order_send(request)
+        if result.retcode != mt5.TRADE_RETCODE_DONE:
+            logger.error("Cierre de posicion rechazado por el broker: {} (request={})", result, request)
+            raise MT5ConnectionError(f"order_send (cierre) fallo con retcode={result.retcode}: {result.comment}")
+        logger.info("Posicion cerrada por limite de tiempo: {}", result)
+        return {"dry_run": False, "result": result}
+
     def get_symbol_trade_specs(self, symbol: str) -> SymbolTradeSpecs:
         """Especificaciones del simbolo necesarias para dimensionar posiciones."""
         mt5 = self._mt5_module()
@@ -168,7 +252,7 @@ class MT5Client:
             "sl": order.stop_loss,
             "tp": order.take_profit,
             "deviation": 10,
-            "magic": 123456,
+            "magic": BOT_MAGIC,
             "comment": order.comment,
             "type_time": mt5.ORDER_TIME_GTC,
             "type_filling": mt5.ORDER_FILLING_IOC,
