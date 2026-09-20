@@ -13,9 +13,10 @@ volumen, RSI, patrones de velas japonesas"):
   1. Nivel tecnico relevante tocado (estructura de precio) - igual que v1:
      `src/levels.py`, manuales primero (config/levels.json), fractales como
      respaldo.
-  2. Extremo de RSI real: el RSI(14) tuvo que haber cruzado por debajo de 30
-     (sobreventa) o por encima de 70 (sobrecompra) en algun momento reciente
-     - no cualquier cruce por 50 como en v1.
+  2. Extremo de RSI real: el RSI(14) tuvo que haber cruzado por debajo de 35
+     (sobreventa) o por encima de 65 (sobrecompra) en algun momento reciente
+     - no cualquier cruce por 50 como en v1. (Umbral ajustado el 20/09/2026,
+     ver mas abajo - originalmente 30/70.)
   3. Giro confirmado del RSI: no alcanza con tocar el extremo, el RSI ya
      tiene que haber vuelto a cruzar el umbral (30/70) para el momento de la
      vela de confirmacion. En los casos reales el giro ocurre varias velas
@@ -56,6 +57,28 @@ ultimas velas o al extremo real del pullback (el que sea mas conservador),
 tal como pide la seccion 5 del sistema. El TP va al siguiente nivel
 estructural, o a un multiplo de riesgo si ese nivel da mala relacion
 riesgo/beneficio.
+
+Ajuste del 20/09/2026 (validado con backtest antes de aplicarlo, a pedido
+del usuario - "¿el doble filtro de RSI extremo + vela de rechazo es
+demasiado estricto?"): `rsi_oversold`/`rsi_overbought` bajan de 30/70 a
+35/65. Se probaron 4 variantes sobre los mismos 7 meses de BTC/Oro
+($654.77, riesgo 2%, bloqueo de riesgo real activo):
+
+  - Solo relajar RSI a 35/65 (manteniendo la vela de rechazo exigida):
+    en BTC, PF 1.73->1.88, win rate 44.4%->47.5%, PnL $194->$415, drawdown
+    practicamente igual (6.8%->7.6%). Confirmado con un split del periodo
+    en dos mitades independientes (ambas mejoran en win rate y PnL; el PF
+    empata en la primera mitad y mejora en la segunda) - no parece ruido
+    de una racha puntual.
+  - Sacar la vela de rechazo (con RSI en 30/70 o en 35/65): en ambos casos
+    empeora fuerte - drawdown sube a 23-31% (vs 6-8% con la vela exigida)
+    y el profit factor cae a ~1.0-1.1. La vela de rechazo esta haciendo un
+    filtrado real (evita entrar varias veces sobre el mismo movimiento sin
+    esperar un giro limpio) - se mantiene sin cambios.
+
+En Oro la muestra fue demasiado chica en las 4 variantes (0-8 operaciones)
+para sacar conclusiones - el cuello de botella ahi sigue siendo el capital
+(seccion 3.2), no el criterio de entrada.
 """
 from __future__ import annotations
 
@@ -95,8 +118,8 @@ class StructuralPullbackStrategy(Strategy):
         min_risk_reward: float = 1.5,
         fallback_rr_multiple: float = 2.0,
         rejection_wick_ratio: float = 1.5,
-        rsi_oversold: float = 30.0,
-        rsi_overbought: float = 70.0,
+        rsi_oversold: float = 35.0,
+        rsi_overbought: float = 65.0,
         extreme_lookback: int = 10,
         volume_ma_period: int = 20,
         volume_confirmation_mult: float = 1.0,

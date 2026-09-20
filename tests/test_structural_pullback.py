@@ -29,6 +29,12 @@ def _make_strategy(symbol: str, levels_file, **overrides) -> StructuralPullbackS
         min_risk_reward=1.0,
         fallback_rr_multiple=2.0,
         extreme_lookback=5,
+        # Umbrales fijados explicitamente (en vez de heredar el default de
+        # produccion) para que estos tests no dependan de que valor este
+        # vigente ahi - ver structural_pullback.py para el historial de
+        # ajustes (30/70 hasta el 20/09/2026, 35/65 desde entonces).
+        rsi_oversold=30.0,
+        rsi_overbought=70.0,
     )
     params.update(overrides)
     return StructuralPullbackStrategy(**params)
