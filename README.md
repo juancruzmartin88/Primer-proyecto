@@ -225,10 +225,22 @@ Ojo: los CSV de backtest no tienen columna de volumen, así que esta corrida
 no ejercita el chequeo de volumen de la v2 (sí va a estar activo en vivo,
 con los datos de MT5) — la frecuencia/calidad real puede diferir un poco.
 
+## Umbral de RSI relajado a 35/65 (20/09/2026)
+
+`rsi_oversold`/`rsi_overbought` bajaron de 30/70 a 35/65 por defecto —
+validado con backtest comparando 4 variantes del filtro de entrada (RSI
+estricto/relajado × con/sin vela de rechazo). En BTC, relajar solo el RSI
+(sin tocar la vela de rechazo) sube el profit factor de 1.73 a **1.88**, el
+win rate de 44.4% a **47.5%**, y más que duplica el PnL total — validado
+también con un split del período en dos mitades independientes. Sacar la
+vela de rechazo, en cambio, empeora fuerte en cualquier combinación (el
+drawdown se dispara a 23-31%) — esa parte del filtro se mantiene igual. Ver
+`CLAUDE.md` para la tabla completa.
+
 ## Próximo paso
 
-1. Juntar operaciones reales de la cuenta real con la Metodología v2 y
-   compararlas contra estos números (PF 1.36 BTC realista).
+1. Juntar operaciones reales de la cuenta real con la Metodología v2 (RSI
+   35/65) y compararlas contra el número vigente (PF 1.88 BTC realista).
 2. El sistema de reversión por RSI extremo ya no es un ítem pendiente
    aparte — quedó absorbido dentro de la Metodología v2. El filtro de
    tendencia de 4H y las notificaciones (Telegram) siguen pendientes,

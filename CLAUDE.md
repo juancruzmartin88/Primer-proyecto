@@ -47,10 +47,11 @@ asumir que está mal cargado.
    reescrita 14/09/2026), traduce la sección 4 del sistema vigente del
    usuario. Reemplaza tanto el v1 (cruce de RSI por 50) como el viejo plan
    de "sistema corto plazo por RSI extremo aparte" - v2 ya combina nivel
-   estructural + RSI extremo real (cruce de 30/70, no solo 50) + giro de
-   RSI confirmado + vela de rechazo/confirmación + volumen (si los datos lo
-   traen). Confirmada con las dos primeras operaciones reales que la
-   aplicaron completa: BTC +$11.00 (11/09) y Oro +$134.07 (14/09), ambas TP.
+   estructural + RSI extremo real (cruce de 35/65, no solo 50 - bajó de
+   30/70 el 20/09/2026, ver decisión 11) + giro de RSI confirmado + vela de
+   rechazo/confirmación + volumen (si los datos lo traen). Confirmada con
+   las dos primeras operaciones reales que la aplicaron completa:
+   BTC +$11.00 (11/09) y Oro +$134.07 (14/09), ambas TP.
 2. **XAUUSD ya NO está pausado** (a diferencia de la decisión del
    10/09/2026 con $400 de capital). En su lugar, la sección 3.2 del sistema
    define una regla dinámica: con el capital real y 2% de riesgo objetivo,
@@ -114,6 +115,17 @@ asumir que está mal cargado.
     no activar sin volver a correr el backtest y mostrar una mejora real.
     El caso puntual del 16/09 se interpretó como ruido normal del sistema,
     no como una falla estructural a corregir.
+11. **Umbral de RSI extremo relajado de 30/70 a 35/65 (20/09/2026) —
+    ACEPTADO**, a diferencia del límite de tiempo. El usuario preguntó si
+    el doble filtro (RSI extremo real + vela de rechazo) era demasiado
+    estricto. Se probaron 4 variantes sobre BTC/Oro (ver backtest más
+    abajo): relajar solo el RSI (manteniendo la vela de rechazo) mejora
+    profit factor, win rate y PnL a la vez en BTC, validado también con un
+    split del período en dos mitades independientes. Sacar la vela de
+    rechazo, en cambio, empeora fuerte en cualquier combinación - esa parte
+    del filtro se mantiene intacta. `rsi_oversold`/`rsi_overbought` ahora
+    son 35.0/65.0 por defecto en `StructuralPullbackStrategy` (antes
+    30.0/70.0).
 
 ## Backtest de validación de la v2 (14/09/2026, antes de desplegar a real)
 
@@ -154,7 +166,9 @@ un bug de la estrategia.
   el escenario realista (comparable al 1.39 que ya había dado v1 el
   10/09/2026 - la v2 no muestra una mejora dramática en este backtest
   puntual, aunque las 2 primeras operaciones reales con v2 fueron ambas TP).
-  Drawdown máximo historico bajo (11.9% sobre $650), riesgo por operación
+  **Superado el 20/09/2026: con RSI 35/65 el PF realista sube a 1.88 -
+  ver "Backtest del umbral de RSI relajado" más abajo, ese es el número
+  vigente.** Drawdown máximo historico bajo (11.9% sobre $650), riesgo por operación
   acotado.
 
 ## Backtest del límite de tiempo máximo (17/09/2026, seccion 6.1) — RECHAZADO
@@ -172,6 +186,65 @@ cuenta real):
 | 12hs | 34 | 47.1% | 1.07 | +$13.84 | 50% |
 | 24hs | 39 | 46.2% | 1.43 | +$113.00 | 23% |
 
+(Nota: esta corrida usó el umbral de RSI 30/70 vigente en ese momento. El
+20/09/2026 el default cambió a 35/65 - ver sección de abajo -, así que
+estos números de "sin límite" ya no reflejan la configuración actual del
+bot, aunque la conclusión sobre el límite de tiempo en sí no se revalidó
+con el nuevo umbral.)
+
+## Backtest del umbral de RSI relajado (20/09/2026) — ACEPTADO
+
+El usuario preguntó si el filtro de entrada (RSI extremo real <30/>70 +
+vela de rechazo) era demasiado estricto. Se probaron 4 variantes sobre los
+mismos 7 meses de H1, $654.77, riesgo 2%, modo realista (bloqueo de riesgo
+real activo):
+
+| Instrumento | Variante | Señales generadas | Trades reales | Win rate | Profit factor | PnL total | Drawdown |
+|---|---|---|---|---|---|---|---|
+| XAUUSD | Baseline (RSI 30/70 + rechazo) | 58 | 0 | — | — | $0 | — |
+| XAUUSD | A (RSI 30/70, sin rechazo) | 433 | 4 | 25.0% | 0.53 | -$17.88 | 5.8% |
+| XAUUSD | **B (RSI 35/65 + rechazo)** | 77 | 2 | 50.0% | 2.36 | +$16.12 | 1.8% |
+| XAUUSD | C (RSI 35/65, sin rechazo) | 689 | 8 | 37.5% | 1.32 | +$17.64 | 6.9% |
+| BTCUSD | Baseline (RSI 30/70 + rechazo) | 67 | 36 | 44.4% | 1.73 | +$194.24 | 6.8% |
+| BTCUSD | A (RSI 30/70, sin rechazo) | 487 | 91 | 36.3% | 1.09 | +$62.88 | 31.0% |
+| BTCUSD | **B (RSI 35/65 + rechazo)** | 118 | 59 | **47.5%** | **1.88** | **+$414.93** | 7.6% |
+| BTCUSD | C (RSI 35/65, sin rechazo) | 886 | 115 | 35.7% | 1.04 | +$43.42 | 23.3% |
+
+En Oro la muestra es demasiado chica en las 4 variantes (0-8 trades) para
+concluir nada - el cuello de botella sigue siendo el capital (sección 3.2),
+no el criterio de entrada.
+
+En BTC (muestra de 36-118 trades, más confiable), la Variante B es la
+única que mejora profit factor Y win rate Y PnL a la vez, sin empeorar el
+drawdown de forma relevante - algo que no había pasado en ningún otro
+experimento de ajuste (el límite de tiempo, arriba, empeoraba todo).
+Validado además con un split del período en dos mitades independientes
+(2500 velas c/u):
+
+| | Baseline 1ra mitad | B 1ra mitad | Baseline 2da mitad | B 2da mitad |
+|---|---|---|---|---|
+| Trades | 19 | 28 | 16 | 29 |
+| Win rate | 42.1% | 46.4% | 43.8% | 48.3% |
+| PF | 1.75 | 1.72 | 1.51 | 1.59 |
+| PnL | $99.40 | $141.73 | $62.98 | $131.71 |
+
+Win rate y PnL mejoran en las dos mitades por separado; el PF empata en la
+primera mitad y mejora en la segunda (nunca empeora) - no parece sobreajuste
+a una racha puntual.
+
+**Sacar la vela de rechazo (variantes A y C) es claramente peor** en
+cualquier combinación de RSI: el drawdown se dispara a 23-31% (vs 6-8% con
+la vela exigida) y el profit factor cae a ~1.0-1.1. La vela de rechazo
+evita entrar varias veces sobre el mismo movimiento sin esperar un giro
+limpio - se mantiene sin cambios.
+
+**Decisión: se acepta la Variante B.** `rsi_oversold`/`rsi_overbought`
+pasan de 30.0/70.0 a 35.0/65.0 por defecto en `StructuralPullbackStrategy`
+(`src/strategies/structural_pullback.py`), la vela de rechazo se mantiene
+intacta. Confirmado corriendo `scripts/backtest_from_csv.py` con el código
+de producción ya actualizado - los números coinciden exacto con la tabla
+de arriba.
+
 Ningún umbral probado mejora el resultado sin límite, y no hay una relación
 monotónica con las horas (8-12hs da peor resultado que 4hs). En la mayoría
 de los cierres forzados, la operación todavía no había llegado a TP ni a
@@ -188,12 +261,15 @@ revalidar contra datos más recientes.
 
 ## Próximos pasos pendientes
 
-1. Juntar operaciones reales de la cuenta real con la Metodología v2 y
-   compararlas contra estos números de referencia (PF 1.36 BTC realista al
-   14/09; PF 1.73 con la muestra ampliada del 17/09; Oro sin operaciones
-   esperables por ahora). Al 17/09/2026 hay 2 operaciones reales cerradas,
-   ambas BTC en positivo: +$9.96 (15/09) y +$0.47 (16-17/09, cierre manual
-   tras ~24hs de lateralización - el caso que motivó la sección 6.1).
+1. Juntar operaciones reales de la cuenta real con la Metodología v2 (RSI
+   35/65 desde el 20/09/2026) y compararlas contra el número de referencia
+   vigente (PF 1.88, WR 47.5% en BTC realista; Oro sin operaciones
+   esperables por ahora - ver "Backtest del umbral de RSI relajado"). Al
+   17/09/2026 hay 2 operaciones reales cerradas, ambas BTC en positivo:
+   +$9.96 (15/09) y +$0.47 (16-17/09, cierre manual tras ~24hs de
+   lateralización - el caso que motivó la sección 6.1). Esas dos
+   operaciones se hicieron con el RSI 30/70 anterior, así que no son
+   comparables 1:1 contra el número de referencia nuevo.
 2. Filtro de tendencia de 4H y notificaciones (ej. Telegram) siguen
    pendientes de una siguiente iteración - no empezar sin que el usuario
    lo pida.
