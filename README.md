@@ -55,9 +55,16 @@ de trading vigente (reemplaza al enfoque anterior de "entrar en la vela de
 ruptura"). Una señal requiere que se cumplan, todos a la vez, sobre las
 últimas dos velas cerradas de un símbolo:
 
-1. **Nivel técnico relevante tocado** — igual que antes: primero los niveles
-   cargados a mano en `config/levels.json`, con fractales automáticos como
-   respaldo si el símbolo no tiene niveles cargados.
+1. **Nivel técnico relevante tocado** — desde el 22/09/2026, los niveles
+   cargados a mano en `config/levels.json` **se combinan siempre** con
+   fractales automáticos (`src/levels.py`), no es uno u otro. Antes, si
+   había niveles manuales cargados, los fractales nunca se usaban — eso
+   causó un incidente real: los niveles de BTC quedaron desactualizados
+   (~$77-79k cargados el 09/09) mientras el precio subía a ~$86k, y el bot
+   dejó de poder operar BTC sin ningún aviso porque el respaldo automático
+   nunca se activaba. Ahora el bot no depende de que alguien mantenga el
+   archivo al día — los manuales son un complemento al análisis del
+   usuario, no un requisito para operar.
 2. **Extremo de RSI(14) real** — el RSI tuvo que cruzar por debajo de 30
    (sobreventa) o por encima de 70 (sobrecompra) en algún momento reciente
    (ventana configurable, `extreme_lookback`), no solo cruzar el nivel 50.

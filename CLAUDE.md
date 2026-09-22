@@ -126,6 +126,34 @@ asumir que está mal cargado.
     del filtro se mantiene intacta. `rsi_oversold`/`rsi_overbought` ahora
     son 35.0/65.0 por defecto en `StructuralPullbackStrategy` (antes
     30.0/70.0).
+12. **INCIDENTE (22/09/2026): los niveles manuales de BTC quedaron
+    obsoletos y el bot dejó de poder operar sin que nada lo avisara —
+    corregido de raíz, no con un parche.** Los niveles de `BTCUSDm` se
+    habían cargado el 09/09/2026 (~77.000-79.400); para el 22/09 el precio
+    ya operaba a ~86.000 (>5.000 puntos de distancia). Como
+    `get_levels_for_symbol` usaba SOLO los niveles manuales cuando la
+    lista no estaba vacía (cayendo a fractales automáticos solo si estaba
+    vacía), el respaldo por fractales **nunca se activó** para BTC — la
+    condición de "nivel técnico tocado" (punto 1 de 4 de la Metodología
+    v2) no se pudo cumplir nunca, así que el bot no operó BTC durante ese
+    tramo, sin ningún error ni log que lo destacara. El usuario lo detectó
+    él mismo notando que "hubo condiciones para operar y el bot no lo
+    hizo". Preguntó, con razón, por qué iba a tener que estar pendiente de
+    avisar manualmente cada vez que esto pasara, potencialmente de
+    madrugada.
+    **Arreglo**: `get_levels_for_symbol` (`src/levels.py`) ahora combina
+    SIEMPRE manuales + fractales (unión, no preferencia) - el filtro de
+    proximidad de la estrategia ya descarta los niveles lejanos, así que
+    combinar no ensucia nada. El bot ya no depende de que el usuario
+    actualice el archivo para seguir operando; los niveles manuales pasan
+    a ser un complemento (capturan zonas que el usuario ve en su análisis
+    y que un fractal reciente no necesariamente detecta), no un requisito.
+    Revalidado con el mismo backtest de siempre sobre los datos históricos
+    (que nunca tocaban los niveles manuales por un mismatch de nombre de
+    símbolo - ver más abajo) - los números no cambiaron nada, confirma que
+    no hay regresión. `config/levels.json` también se actualizó con los
+    niveles reales vigentes del usuario (BTCUSDm: `[82046.15]`; XAUUSDm
+    sumó `4395.0`).
 
 ## Backtest de validación de la v2 (14/09/2026, antes de desplegar a real)
 
@@ -259,6 +287,22 @@ en `src/backtester.py` - hay que volver a correr el backtest antes de
 prender `ENABLE_TIME_EXIT=true`, no asumir que sigue siendo mala idea sin
 revalidar contra datos más recientes.
 
+## Fix de niveles obsoletos (22/09/2026) — sin regresión
+
+Revalidado con el mismo backtest estándar ($654.77, riesgo 2%, modo real)
+sobre los CSV históricos de siempre - los números no se movieron ni un
+centavo respecto al benchmark de la sección anterior (XAUUSD 2 trades PF
+2.36; BTCUSD 59 trades PF 1.88, WR 47.5%). Es el resultado esperado: esos
+CSV usan los símbolos `XAUUSD`/`BTCUSD` (sin la "m"), que nunca coinciden
+con las claves `XAUUSDm`/`BTCUSDm` de `config/levels.json` - esos
+backtests ya corrían sobre fractales puros antes del fix, así que el
+cambio (manual + fractal combinados) no les afecta. No tiene sentido
+backtestear el nivel manual nuevo de BTC (82046.15) contra el histórico
+Feb-Sept, porque ese nivel es una lectura del gráfico de HOY (22/09), no
+algo que haya sido relevante en ese período pasado - su rol es
+complementar los fractales en vivo, no algo backtesteable contra datos
+viejos.
+
 ## Próximos pasos pendientes
 
 1. Juntar operaciones reales de la cuenta real con la Metodología v2 (RSI
@@ -288,6 +332,6 @@ cd Primer-proyecto
 python -m src.bot
 ```
 
-Los tests (`pytest tests/ -v`, 44 tests) y los scripts de backtest
+Los tests (`pytest tests/ -v`, 45 tests) y los scripts de backtest
 (`scripts/backtest_from_csv.py`, `scripts/list_signals.py`) corren en
 cualquier entorno con las dependencias instaladas, no requieren MT5.
