@@ -44,14 +44,19 @@ def test_detect_fractal_levels_finds_local_peak_and_trough():
     assert 95.0 in levels
 
 
-def test_get_levels_for_symbol_prefers_manual_over_fractal(tmp_path):
+def test_get_levels_for_symbol_combines_manual_and_fractal(tmp_path):
+    # Desde el 22/09/2026 ya no es "manual O fractal" - se combinan los
+    # dos siempre, para que un nivel manual desactualizado no deje al bot
+    # ciego (ver docstring de src/levels.py, incidente real de BTC).
     levels_file = tmp_path / "levels.json"
     levels_file.write_text(json.dumps({"XAUUSD": [2000.0]}))
     data = _sample_ohlc_with_spike()
 
     levels = get_levels_for_symbol("XAUUSD", data, manual_levels_path=levels_file)
 
-    assert levels == [2000.0]
+    assert 2000.0 in levels  # el manual sigue presente
+    assert 105.0 in levels  # y el fractal tambien, no se pisan
+    assert 95.0 in levels
 
 
 def test_get_levels_for_symbol_falls_back_to_fractal_when_no_manual(tmp_path):

@@ -1,13 +1,30 @@
 """Niveles estructurales (soporte/resistencia) por simbolo.
 
-Segun lo definido con el usuario: primero se usan los niveles que el
-carga a mano (los que el lee en TradingView: soportes, resistencias,
-claviculares de H-C-H, pivotes), y si no cargo ninguno para ese simbolo,
-se cae a una deteccion automatica por fractales/swings como respaldo.
+Los niveles manuales (los que el usuario lee en TradingView: soportes,
+resistencias, claviculares de H-C-H, pivotes) viven en un JSON versionado
+en el repo (config/levels.json por defecto) para que sea facil de editar
+sin tocar codigo y quede historial de cambios en git.
 
-Los niveles manuales viven en un JSON versionado en el repo
-(config/levels.json por defecto) para que sea facil de editar sin tocar
-codigo y quede historial de cambios en git.
+Hasta el 22/09/2026, `get_levels_for_symbol` usaba SOLO los manuales si
+habia alguno cargado para el simbolo, cayendo a fractales automaticos
+unicamente si la lista estaba vacia. Eso genero un incidente real: los
+niveles de BTC se cargaron el 09/09/2026 (~77.000-79.400) y para el 22/09
+el precio ya operaba a ~86.000 - a mas de 5.000 puntos de distancia. Como
+la lista de BTC no estaba vacia, el respaldo automatico nunca se activaba,
+y el bot quedo ciego (ninguna señal podia cumplir la condicion de "nivel
+tocado") sin que nadie lo notara hasta que el usuario pregunto por que no
+operaba. Ver CLAUDE.md para el detalle completo.
+
+Desde entonces, `get_levels_for_symbol` combina SIEMPRE los dos: los
+manuales (juicio del usuario, capturan zonas que un fractal reciente no
+necesariamente ve) + los fractales calculados sobre las ultimas velas
+(se recalculan solos en cada llamada, sin depender de que alguien los
+actualice a mano). El filtro de proximidad de la estrategia
+(`level_proximity_atr_mult`) ya descarta los niveles que no estan cerca
+del precio actual, asi que sumar ambas fuentes no ensucia nada - en el
+peor caso hay niveles de mas que nunca se usan. Esto hace que el bot ya
+no dependa de que el usuario actualice el archivo para poder operar -
+los manuales pasan a ser un complemento, no un requisito.
 """
 from __future__ import annotations
 
@@ -65,11 +82,10 @@ def get_levels_for_symbol(
     manual_levels_path: Path | str = DEFAULT_LEVELS_PATH,
     fractal_window: int = 2,
 ) -> list[float]:
-    """Niveles manuales si existen para el simbolo; si no, fractales automaticos."""
+    """Niveles manuales + fractales automaticos, combinados (ver docstring del modulo)."""
     manual = load_manual_levels(symbol, manual_levels_path)
-    if manual:
-        return manual
-    return detect_fractal_levels(data, window=fractal_window)
+    fractal = detect_fractal_levels(data, window=fractal_window)
+    return sorted(set(manual) | set(fractal))
 
 
 def nearest_level_beyond_price(

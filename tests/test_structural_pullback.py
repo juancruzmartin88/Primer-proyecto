@@ -91,7 +91,7 @@ def _sell_setup_rows(*, confirmation_close: float = 197.7) -> list[dict]:
     return rows
 
 
-def test_buy_setup_detected_with_sl_below_pullback_and_tp_by_rr(levels_file):
+def test_buy_setup_detected_with_sl_below_pullback(levels_file):
     strategy = _make_strategy("BUYSYM", levels_file)
     data = _candles(_buy_setup_rows())
 
@@ -102,14 +102,15 @@ def test_buy_setup_detected_with_sl_below_pullback_and_tp_by_rr(levels_file):
     tp = strategy.take_profit_price(data, signal)
     entry = data["close"].iloc[-1]
     assert sl < data["low"].iloc[-2]  # por debajo del minimo de la vela de rechazo
-    assert tp > entry  # TP en la direccion de la operacion
-    # Sin nivel util mas arriba (unico nivel cargado es el soporte de 100),
-    # tiene que haber caido al fallback de multiplo de riesgo.
-    risk = entry - sl
-    assert tp == pytest.approx(entry + 2.0 * risk, rel=1e-6)
+    # TP en la direccion de la operacion - puede venir del nivel manual, de
+    # un fractal detectado sobre estas mismas velas (desde el 22/09/2026
+    # get_levels_for_symbol siempre combina los dos, ver src/levels.py) o
+    # del fallback de multiplo de riesgo; el mecanismo exacto de eleccion
+    # se prueba aparte, aislado, en test_calculate_take_profit_falls_back_to_rr_multiple.
+    assert tp > entry
 
 
-def test_sell_setup_detected_with_sl_above_pullback_and_tp_by_rr(levels_file):
+def test_sell_setup_detected_with_sl_above_pullback(levels_file):
     strategy = _make_strategy("SELLSYM", levels_file)
     data = _candles(_sell_setup_rows())
 
@@ -120,9 +121,20 @@ def test_sell_setup_detected_with_sl_above_pullback_and_tp_by_rr(levels_file):
     tp = strategy.take_profit_price(data, signal)
     entry = data["close"].iloc[-1]
     assert sl > data["high"].iloc[-2]
-    assert tp < entry
-    risk = sl - entry
-    assert tp == pytest.approx(entry - 2.0 * risk, rel=1e-6)
+    assert tp < entry  # TP en la direccion de la operacion (ver nota en el test BUY equivalente)
+
+
+def test_calculate_take_profit_falls_back_to_rr_multiple(levels_file):
+    # Prueba aislada (sin pasar por generate_signal/get_levels_for_symbol,
+    # asi que sin interferencia de fractales) del mecanismo de fallback:
+    # con un unico nivel que no sirve de TP (esta del lado equivocado del
+    # precio), _calculate_take_profit tiene que caer al multiplo de riesgo.
+    strategy = _make_strategy("BUYSYM", levels_file)
+    entry_price = 197.7
+    stop_loss = 201.6  # SELL: SL por encima de la entrada
+    tp = strategy._calculate_take_profit([200.0], entry_price, Signal.SELL, stop_loss)
+    risk = stop_loss - entry_price
+    assert tp == pytest.approx(entry_price - strategy.fallback_rr_multiple * risk, rel=1e-6)
 
 
 def test_no_setup_when_confirmation_candle_is_not_bullish(levels_file):
