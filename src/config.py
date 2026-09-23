@@ -88,6 +88,17 @@ class AppConfig:
     # revisar el resultado del backtest antes de sumarlo a la cuenta real.
     # Ver CLAUDE.md para los numeros y la decision.
     enable_eth: bool
+    # Estrategia de ruptura de consolidacion (evaluada 23/09/2026,
+    # RECHAZADA - profit factor 1.06-1.11, muy por debajo del 1.5 exigido,
+    # y el bucket de capital queda bloqueado por el lote minimo de BTC casi
+    # igual que le pasaba a Oro). APAGADA por defecto. Ver CLAUDE.md.
+    enable_breakout_strategy: bool
+    # Bucket de capital separado para la estrategia de ruptura (si se llega
+    # a activar): % del balance real que arma el bucket, y % de riesgo
+    # dentro de ESE bucket por operacion (no del capital total, a
+    # diferencia de la Metodologia v2). Pedido explicito del usuario.
+    breakout_bucket_pct: float
+    breakout_risk_per_trade_pct: float
 
     @property
     def is_real_account_server(self) -> bool:
@@ -135,6 +146,9 @@ def load_config() -> AppConfig:
         live_trading_confirmed=live_confirmed,
         enable_time_exit=_get_bool("ENABLE_TIME_EXIT", False),
         enable_eth=_get_bool("ENABLE_ETH", False),
+        enable_breakout_strategy=_get_bool("ENABLE_BREAKOUT_STRATEGY", False),
+        breakout_bucket_pct=_get_float("BREAKOUT_BUCKET_PCT", 15.0),
+        breakout_risk_per_trade_pct=_get_float("BREAKOUT_RISK_PER_TRADE_PCT", 3.0),
     )
     config.assert_safe_to_trade_live()
     return config

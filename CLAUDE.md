@@ -162,6 +162,16 @@ asumir que está mal cargado.
     `ENABLE_ETH=false` (default), con `ETHUSD_SYMBOL` ya definido en
     `src/bot.py` - ver la sección de backtest más abajo para el detalle y
     la advertencia sobre las specs de contrato de ETH sin verificar.
+14. **Estrategia de ruptura de consolidación evaluada (23/09/2026) — código
+    listo pero RECHAZADA.** Sistema separado de la Metodología v2 (ruptura
+    de rango, no reversión), solo sobre BTC. Falla las dos condiciones que
+    el usuario pidió confirmar: profit factor 1.06-1.11 (vs. 1.5 exigido,
+    ni el trailing stop desde 1R lo mejora - de hecho lo empeora a 0.79) y
+    el bucket de capital pedido (15% del balance, riesgo 3% del bucket)
+    queda bloqueado por el lote mínimo de BTC casi igual que a Oro con el
+    capital total (2 de 47 señales pasan, ambas perdedoras). Queda detrás
+    de `ENABLE_BREAKOUT_STRATEGY=false` en `src/bot.py`/`src/config.py` -
+    ver la sección de backtest más abajo para el detalle completo.
 
 ## Backtest de validación de la v2 (14/09/2026, antes de desplegar a real)
 
@@ -379,6 +389,98 @@ a correr `scripts/backtest_from_csv.py` con esas specs confirmadas, y
 recién ahí evaluar si conviene prender `ENABLE_ETH=true` - no activar solo
 porque haya pasado tiempo o cambiado el capital, sin revalidar.
 
+## Estrategia de ruptura de consolidación (23/09/2026) — código listo, RECHAZADA
+
+El usuario pidió evaluar un sistema SEPARADO de la Metodología v2 (no la
+reemplaza ni la toca): operar la ruptura de un rango de consolidación en
+vez de esperar un pullback sobre un nivel estructural. Reglas pedidas, sin
+margen de interpretación propia:
+
+1. Consolidación: ATR promedio de las últimas 10-14 velas por debajo de su
+   propio promedio de las últimas 50.
+2. Señal: vela cierra por fuera del rango + volumen de esa vela ≥1.5x el
+   promedio de volumen de las últimas 20 velas.
+3. Confirmación: la vela siguiente cierra en la misma dirección, sin volver
+   a meterse dentro del rango roto.
+4. SL en el borde opuesto del rango roto. TP a un mínimo de 2:1 (también se
+   evaluó una variante con trailing stop desde 1R, ver más abajo).
+
+Implementado en `src/strategies/breakout.py` (`BreakoutStrategy`, 8 tests en
+`tests/test_breakout.py`) - mismo patrón de interfaz que
+`StructuralPullbackStrategy`, sin tocar ese archivo.
+
+**Datos**: mismos 5000 velas H1 de BTC ya usadas para todo el resto de los
+backtests (`data/btcusd_h1_raw.csv`), mismo período de 7 meses. El usuario
+pidió evaluar esto solo sobre BTC (no Oro/ETH).
+
+**Resultado** (mismos parámetros default, sin ajustar nada a mano):
+
+| Modo | Trades | Win rate | Profit factor | PnL total | Drawdown |
+|---|---|---|---|---|---|
+| Lote fijo 1.0 (calidad de señal pura, TP fijo 2R) | 47 | 31.9% | **1.06** | +$3108.67* | **76.3%*** |
+| Riesgo 2% sobre capital TOTAL ($746.24), real (TP fijo 2R) | 44 | 34.1% | 1.11 | +$47.74 | 13.8% |
+| Trailing stop desde 1R (lote fijo, evaluado a pedido) | 62 | 53.2% | **0.79** | -$8913.32* | — |
+
+(*PnL/DD en USD del "lote fijo" no son realistas en magnitud - mismo
+disclaimer que en todos los backtests anteriores, sirven para aislar
+calidad de señal, no para leer el dólar. El profit factor y el win rate sí
+son comparables directamente.)
+
+Comparado contra el criterio que el propio usuario fijó (PF > 1.5, mismo
+que se usó para rechazar ETH): **ningún modo lo alcanza, ni por asomo**. El
+trailing desde 1R, lejos de mejorar las cosas, las empeora (PF 0.79 vs
+1.06) - más operaciones ganadoras chicas (WR sube a 53.2%) pero las
+perdedoras (que siguen siendo -1R completo cuando el precio nunca llega a
+activar el trailing) se comen la ganancia. La causa de fondo no es el
+esquema de salida (2R fijo vs. trailing) sino la calidad de la señal de
+entrada misma - un win rate de 32-53% con un R:R de 2:1 apenas empata o
+pierde, no hay margen.
+
+**Bucket de capital (pregunta explícita del usuario: "¿es ejecutable con
+el lote mínimo de BTC o el filtro de capital lo bloquea, igual que pasó
+con Oro?"): la respuesta es SÍ, se bloquea, casi exactamente igual que
+Oro.** Con el bucket de 15% del capital real ($746.24 → $111.94) y riesgo
+3% de ese bucket ($3.36 objetivo por operación), el lote mínimo de BTC
+(0.01 lotes) fuerza entre 4.2% y 46.1% de riesgo real en la enorme mayoría
+de las 47 señales - muy por encima del 3% objetivo. En modo real
+(bloqueando como bloquearía la cuenta real) solo pasan **2 de 47 señales**,
+y las dos resultaron en pérdida (profit factor 0.00). El motivo es
+aritmético, no una casualidad: el rango de precio de BTC (miles de
+dólares) hace que hasta un SL "ajustado" en términos de la estrategia siga
+siendo grande en dólares, y un bucket de ~$112 con lote mínimo de 0.01 BTC
+no tiene margen para absorber eso al 3% de riesgo - la misma dinámica que
+ya se documentó para Oro con el capital total (sección 3.2), aplicada acá
+a un bucket chico en vez de a todo el capital.
+
+**Decisión: NO se activa.** Falla en las dos preguntas que el usuario pidió
+confirmar antes de considerarlo: la calidad de señal no llega al profit
+factor mínimo (1.06-1.11 vs. 1.5 exigido) y el esquema de capital pedido no
+es ejecutable con el lote mínimo de BTC (2 de 47 señales pasan, ambas
+perdedoras). Se deja el código preparado pero inerte, mismo patrón que ETH
+y el límite de tiempo:
+- `src/strategies/breakout.py`: `BreakoutStrategy`, testeada, sin tocar
+  `structural_pullback.py`.
+- `src/bot.py`: `build_strategies(config)` agrega `BreakoutStrategy` sobre
+  BTC solo si `config.enable_breakout_strategy` es `True`; `iterate()`
+  arma un `RiskManager` y balance separados (el bucket) solo para esta
+  estrategia cuando corresponde (rama `isinstance(strategy, BreakoutStrategy)`),
+  sin tocar el sizing de la Metodología v2. El límite de tiempo (sección
+  6.1) queda explícitamente afuera de esta estrategia (no tiene
+  `rsi_period`), para que activar `ENABLE_TIME_EXIT` y
+  `ENABLE_BREAKOUT_STRATEGY` a la vez no rompa nada.
+- `src/config.py`: `AppConfig.enable_breakout_strategy`,
+  `breakout_bucket_pct` (15.0 default), `breakout_risk_per_trade_pct` (3.0
+  default).
+- `.env.example`: `ENABLE_BREAKOUT_STRATEGY=false`,
+  `BREAKOUT_BUCKET_PCT=15.0`, `BREAKOUT_RISK_PER_TRADE_PCT=3.0`.
+
+Si en el futuro se quiere reconsiderar: el problema de fondo es la calidad
+de la señal de entrada (32-53% de acierto no alcanza con 2:1), no un
+detalle de implementación - antes de tocar el código, repensar el criterio
+de entrada (por ejemplo, un filtro de tendencia de marco mayor que filtre
+rupturas en contra de la tendencia dominante) y volver a correr el
+backtest completo, no solo ajustar el bucket de capital.
+
 ## Próximos pasos pendientes
 
 1. Juntar operaciones reales de la cuenta real con la Metodología v2 (RSI
@@ -400,6 +502,11 @@ porque haya pasado tiempo o cambiado el capital, sin revalidar.
    abajo. No revisitar activarlo sin (a) verificar las specs reales de
    contrato de `ETHUSDm` en el Market Watch de la cuenta y (b) volver a
    correr el backtest con esas specs confirmadas.
+5. La estrategia de ruptura de consolidación (`BreakoutStrategy`) queda
+   evaluada y rechazada (`ENABLE_BREAKOUT_STRATEGY=false`) - ver
+   "Estrategia de ruptura de consolidación" más abajo. No revisitar sin
+   repensar el criterio de entrada primero (el problema es la calidad de
+   la señal, no el bucket de capital ni el esquema de SL/TP).
 
 ## Cómo correr cosas
 
@@ -413,6 +520,6 @@ cd Primer-proyecto
 python -m src.bot
 ```
 
-Los tests (`pytest tests/ -v`, 45 tests) y los scripts de backtest
+Los tests (`pytest tests/ -v`, 53 tests) y los scripts de backtest
 (`scripts/backtest_from_csv.py`, `scripts/list_signals.py`) corren en
 cualquier entorno con las dependencias instaladas, no requieren MT5.

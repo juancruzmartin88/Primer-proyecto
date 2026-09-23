@@ -119,6 +119,13 @@ mala relación riesgo/beneficio — sin cambios respecto a la versión anterior.
   el usuario había fijado para activarlo (PF > 1.5). Ver CLAUDE.md para el
   detalle completo y la advertencia sobre las specs de contrato de ETH
   (pip_size/pip_value) todavía sin verificar contra el Market Watch real.
+- **Estrategia de ruptura de consolidación (`src/strategies/breakout.py`)
+  preparada pero APAGADA** (`ENABLE_BREAKOUT_STRATEGY=false`). Sistema
+  separado de la Metodología v2, solo BTC, con bucket de capital propio
+  (15% del balance, riesgo 3% del bucket). Evaluada el 23/09/2026 y
+  RECHAZADA: profit factor 1.06-1.11 (no llega al 1.5 exigido, ni con
+  trailing stop desde 1R) y el bucket queda bloqueado por el lote mínimo de
+  BTC casi igual que Oro. Ver CLAUDE.md para el detalle completo.
 - **Sin límite de tiempo máximo por posición** (`ENABLE_TIME_EXIT=false`).
   Hay un límite de tiempo implementado (`src/time_exit.py`, sección 6.1 del
   sistema) pero el backtest del 17/09/2026 mostró que empeora el profit

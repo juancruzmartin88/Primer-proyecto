@@ -23,11 +23,12 @@ from datetime import datetime, timezone
 import pandas as pd
 from loguru import logger
 
-from src.config import AppConfig, load_config
+from src.config import AppConfig, RiskConfig, load_config
 from src.indicators import atr, rsi
 from src.logger_setup import setup_logging
 from src.mt5_client import MT5Client, OpenPosition
 from src.risk_manager import RiskLimitExceeded, RiskManager
+from src.strategies.breakout import BreakoutStrategy
 from src.strategies.structural_pullback import StructuralPullbackStrategy
 from src.time_exit import should_force_close
 from src.types import Signal, TradeOrder
@@ -47,7 +48,7 @@ BTCUSD_SYMBOL = "BTCUSDm"
 ETHUSD_SYMBOL = "ETHUSDm"
 
 
-def build_strategies(config: AppConfig) -> list[StructuralPullbackStrategy]:
+def build_strategies(config: AppConfig) -> list[StructuralPullbackStrategy | BreakoutStrategy]:
     # Metodologia v2 (seccion 4 del sistema, 14/09/2026) para los
     # instrumentos activos. El limite dinamico de riesgo de Oro (seccion
     # 3.2: solo tomar señales cuyo SL tecnico entre en el % de riesgo
@@ -55,12 +56,20 @@ def build_strategies(config: AppConfig) -> list[StructuralPullbackStrategy]:
     # RiskManager en cada señal, recalculado sobre el balance real de la
     # cuenta en ese momento. Mismos parametros por defecto (RSI 35/65,
     # vela de rechazo) para los tres simbolos, ETH incluido.
-    strategies = [
+    strategies: list[StructuralPullbackStrategy | BreakoutStrategy] = [
         StructuralPullbackStrategy(symbol=BTCUSD_SYMBOL, timeframe="H1"),
         StructuralPullbackStrategy(symbol=XAUUSD_SYMBOL, timeframe="H1"),
     ]
     if config.enable_eth:
         strategies.append(StructuralPullbackStrategy(symbol=ETHUSD_SYMBOL, timeframe="H1"))
+    if config.enable_breakout_strategy:
+        # Sistema SEPARADO de la Metodologia v2 (ruptura de consolidacion,
+        # no reversion) - evaluado el 23/09/2026 y RECHAZADO (profit factor
+        # 1.06-1.11, muy por debajo del 1.5 exigido, y el bucket de capital
+        # que pide el usuario para esta estrategia queda bloqueado por el
+        # lote minimo de BTC casi igual que Oro). Ver CLAUDE.md. Solo BTC,
+        # nunca Oro/ETH (asi lo pidio el usuario).
+        strategies.append(BreakoutStrategy(symbol=BTCUSD_SYMBOL, timeframe="H1"))
     return strategies
 
 
@@ -92,6 +101,15 @@ def run() -> None:
                 strategy.symbol,
                 config.risk.risk_per_trade_pct,
             )
+        if isinstance(strategy, BreakoutStrategy):
+            logger.info(
+                "{}: estrategia de ruptura con bucket de capital separado - "
+                "arriesga {}% de un bucket del {}% del balance real (no del "
+                "capital total). Ver CLAUDE.md.",
+                strategy.symbol,
+                config.breakout_risk_per_trade_pct,
+                config.breakout_bucket_pct,
+            )
     try:
         while True:
             for strategy in strategies:
@@ -120,8 +138,10 @@ def iterate(client: MT5Client, strategy, risk_manager: RiskManager, config: AppC
     # (`ENABLE_TIME_EXIT` no seteado o en false). El backtest del
     # 17/09/2026 mostro que empeora el profit factor 18-45% frente a no
     # tener ningun limite - se dejo el codigo listo pero inerte hasta que
-    # se revalide con otras condiciones. Ver CLAUDE.md.
-    if config.enable_time_exit:
+    # se revalide con otras condiciones. Ver CLAUDE.md. Solo aplica a la
+    # Metodologia v2 (usa RSI/ATR propios) - BreakoutStrategy no define
+    # rsi_period, asi que queda afuera aunque ENABLE_TIME_EXIT este en true.
+    if config.enable_time_exit and isinstance(strategy, StructuralPullbackStrategy):
         open_position = client.get_open_position_by_bot(strategy.symbol)
         if open_position is not None:
             _manage_open_position(client, strategy, open_position, data, config)
@@ -147,8 +167,30 @@ def iterate(client: MT5Client, strategy, risk_manager: RiskManager, config: AppC
     tp_price = strategy.take_profit_price(data, signal)
     specs = client.get_symbol_trade_specs(strategy.symbol)
 
-    size_result = risk_manager.calculate_position_size(
-        account_balance=account.balance,
+    if isinstance(strategy, BreakoutStrategy):
+        # Bucket de capital separado (pedido explicito del usuario,
+        # 23/09/2026): esta estrategia NO arriesga % del capital total como
+        # la Metodologia v2 - usa un bucket de `breakout_bucket_pct`% del
+        # capital real, arriesgando `breakout_risk_per_trade_pct`% de ESE
+        # bucket por operacion. Queda listo aunque la estrategia esta
+        # RECHAZADA (ver CLAUDE.md): con el lote minimo de BTC, este bucket
+        # bloquea casi todas las señales igual que le pasaba a Oro con el
+        # capital total.
+        sizing_balance = account.balance * (config.breakout_bucket_pct / 100.0)
+        sizing_risk_manager = RiskManager(
+            RiskConfig(
+                risk_per_trade_pct=config.breakout_risk_per_trade_pct,
+                max_daily_loss_pct=risk_manager.config.max_daily_loss_pct,
+                max_open_positions=risk_manager.config.max_open_positions,
+            ),
+            pnl_tracker=risk_manager.pnl_tracker,
+        )
+    else:
+        sizing_balance = account.balance
+        sizing_risk_manager = risk_manager
+
+    size_result = sizing_risk_manager.calculate_position_size(
+        account_balance=sizing_balance,
         entry_price=entry_price,
         stop_loss_price=sl_price,
         pip_value_per_lot=specs.pip_value_per_lot,
@@ -163,7 +205,7 @@ def iterate(client: MT5Client, strategy, risk_manager: RiskManager, config: AppC
     # demo solo loguea. Esto es lo que impone en la practica el limite de
     # 13 puntos de SL de la seccion 3.2, recalculado solo con el balance
     # real de la cuenta - no un numero fijo en el codigo.
-    risk_manager.enforce_min_lot_policy(size_result, is_real_account=config.is_real_account_server)
+    sizing_risk_manager.enforce_min_lot_policy(size_result, is_real_account=config.is_real_account_server)
 
     order = TradeOrder(
         symbol=strategy.symbol,
