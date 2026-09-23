@@ -112,6 +112,13 @@ mala relación riesgo/beneficio — sin cambios respecto a la versión anterior.
 - **`XAUUSDm`/`BTCUSDm` son los dos símbolos que opera el bot** (`src/bot.py`).
   El sufijo `"m"` depende del tipo de cuenta — reverificado en la cuenta
   real el 16/09/2026, coincide con la demo.
+- **`ETHUSDm` está preparado en el código pero APAGADO** (`ENABLE_ETH=false`).
+  Evaluado el 23/09/2026 con los mismos parámetros de BTC (RSI 35/65, vela
+  de rechazo, riesgo 2%) — el backtest de 7 meses dio profit factor 1.09 y
+  drawdown 23.3% (vs. PF 1.88 / DD 7.6% de BTC), no cumple el criterio que
+  el usuario había fijado para activarlo (PF > 1.5). Ver CLAUDE.md para el
+  detalle completo y la advertencia sobre las specs de contrato de ETH
+  (pip_size/pip_value) todavía sin verificar contra el Market Watch real.
 - **Sin límite de tiempo máximo por posición** (`ENABLE_TIME_EXIT=false`).
   Hay un límite de tiempo implementado (`src/time_exit.py`, sección 6.1 del
   sistema) pero el backtest del 17/09/2026 mostró que empeora el profit

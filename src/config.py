@@ -82,6 +82,12 @@ class AppConfig:
     # `src/time_exit.py` por si en el futuro cambian las condiciones, pero
     # no se activa sin revalidar. Ver CLAUDE.md para el detalle completo.
     enable_time_exit: bool
+    # Tercer simbolo (ETH), evaluado el 23/09/2026 con los mismos parametros
+    # ya validados de BTC (RSI 35/65, vela de rechazo, riesgo 2%). APAGADO
+    # por defecto a proposito: el usuario pidio dejar el codigo listo pero
+    # revisar el resultado del backtest antes de sumarlo a la cuenta real.
+    # Ver CLAUDE.md para los numeros y la decision.
+    enable_eth: bool
 
     @property
     def is_real_account_server(self) -> bool:
@@ -128,6 +134,7 @@ def load_config() -> AppConfig:
         dry_run=_get_bool("DRY_RUN", True),
         live_trading_confirmed=live_confirmed,
         enable_time_exit=_get_bool("ENABLE_TIME_EXIT", False),
+        enable_eth=_get_bool("ENABLE_ETH", False),
     )
     config.assert_safe_to_trade_live()
     return config

@@ -154,6 +154,14 @@ asumir que está mal cargado.
     no hay regresión. `config/levels.json` también se actualizó con los
     niveles reales vigentes del usuario (BTCUSDm: `[82046.15]`; XAUUSDm
     sumó `4395.0`).
+13. **ETH evaluado como tercer símbolo (23/09/2026) — código listo pero NO
+    activado.** Con exactamente los mismos parámetros de BTC (RSI 35/65,
+    vela de rechazo, riesgo 2%), el backtest de 7 meses dio PF 1.09 y
+    drawdown 23.3% (vs. PF 1.88 / DD 7.6% de BTC) - no cumple el criterio
+    que el propio usuario fijó para activarlo (PF > 1.5). Queda detrás de
+    `ENABLE_ETH=false` (default), con `ETHUSD_SYMBOL` ya definido en
+    `src/bot.py` - ver la sección de backtest más abajo para el detalle y
+    la advertencia sobre las specs de contrato de ETH sin verificar.
 
 ## Backtest de validación de la v2 (14/09/2026, antes de desplegar a real)
 
@@ -303,6 +311,74 @@ algo que haya sido relevante en ese período pasado - su rol es
 complementar los fractales en vivo, no algo backtesteable contra datos
 viejos.
 
+## Evaluación de ETH como tercer símbolo (23/09/2026) — código listo, APAGADO
+
+El usuario pidió evaluar sumar `ETHUSDm` con exactamente los mismos
+parámetros ya validados de BTC (RSI 35/65, vela de rechazo obligatoria,
+nivel técnico manual ∪ fractal, riesgo 2%, ajuste por lote no por SL) -
+sin modificar ninguna regla, solo correr el backtest y decidir si conviene
+activarlo.
+
+**Datos**: se descargaron 5000 velas H1 de ETH/USD (Twelve Data, mismo
+proveedor que BTC/Oro) para el mismo período de 7 meses
+(13/02/2026-10/09/2026) - `data/ethusd_h1_raw.csv` (gitignored como el
+resto de `data/`, se puede volver a generar).
+
+**Resultado** (balance real $746.24, riesgo 2%, `StructuralPullbackStrategy`
+sin ningún parámetro modificado):
+
+| Modo | Trades | Win rate | Profit factor | PnL total | Drawdown |
+|---|---|---|---|---|---|
+| Lote fijo 1.0 (calidad de señal pura) | 50 | 36.0% | 1.44 | +$547.69 | 3.9% |
+| Riesgo 2% real (exploratorio = real, ver nota) | 50 | 36.0% | **1.09** | +$47.52 | **23.3%** |
+
+Comparado contra el benchmark vigente de BTC (RSI 35/65, mismo backtest):
+**PF 1.88, WR 47.5%, DD 7.6%**. ETH queda claramente por debajo en las tres
+métricas, y el drawdown en modo riesgo real (23.3%) es más de 3 veces el de
+BTC - un nivel de drawdown que en el pasado (backtest del límite de tiempo,
+sección de arriba) ya se asoció con configuraciones descartadas por el
+usuario.
+
+**Nota sobre el modo "real" = "exploratorio" (sin diferencia):** a
+diferencia de Oro, el filtro de capital de la sección 3.2 **no bloqueó
+ninguna de las 50 señales** de ETH (`--is-real-account` dio exactamente el
+mismo resultado que sin el flag). Con los specs de contrato asumidos para
+ETH (ver advertencia abajo), el SL técnico en Ethereum nunca fuerza más
+riesgo del objetivo al lote mínimo con este capital - la dinámica opuesta a
+Oro, donde el filtro bloqueaba el 97% de las señales.
+
+**ADVERTENCIA pendiente de verificar**: los parámetros `pip_size=0.01` /
+`pip_value_per_lot=0.01` usados para ETH en este backtest son una
+**suposición** (copiados de la convención de BTC en Exness: contrato de 1
+unidad, 2 decimales), **no verificados contra el Market Watch real de
+`ETHUSDm`** como sí se hizo para XAUUSDm/BTCUSDm (ver decisión 3). Si el
+contrato real de ETH en la cuenta tiene otro tamaño o `tick_value`, tanto
+el profit factor en modo riesgo real como sobre todo el drawdown (23.3%,
+la métrica más sensible al sizing) podrían cambiar - los 50 trades, el
+36.0% de win rate y el PF 1.44 a lote fijo sí son robustos a este supuesto,
+porque no dependen de la conversión a dólares por punto.
+
+**Decisión: NO se activa.** El propio criterio que fijó el usuario para
+activarlo (profit factor > 1.5, drawdown no mucho mayor al de BTC) no se
+cumple - PF 1.09 y DD 23.3% quedan lejos en ambos sentidos. Se deja el
+código preparado pero inerte, mismo patrón que el límite de tiempo
+(sección de arriba):
+- `src/bot.py`: constante `ETHUSD_SYMBOL = "ETHUSDm"` y
+  `build_strategies(config)` agrega el tercer `StructuralPullbackStrategy`
+  solo si `config.enable_eth` es `True`.
+- `src/config.py`: nuevo campo `AppConfig.enable_eth`, leído de
+  `ENABLE_ETH` (default `false`).
+- `.env.example`: `ENABLE_ETH=false` documentado.
+- `config/levels.json`: clave `ETHUSDm` agregada (vacía por ahora - sin
+  niveles manuales cargados, el bot igual detecta fractales automáticos si
+  se llega a activar).
+
+Si en el futuro se quiere reconsiderar: primero verificar las specs reales
+de `ETHUSDm` en el Market Watch de la cuenta (no asumir 0.01/0.01), volver
+a correr `scripts/backtest_from_csv.py` con esas specs confirmadas, y
+recién ahí evaluar si conviene prender `ENABLE_ETH=true` - no activar solo
+porque haya pasado tiempo o cambiado el capital, sin revalidar.
+
 ## Próximos pasos pendientes
 
 1. Juntar operaciones reales de la cuenta real con la Metodología v2 (RSI
@@ -319,6 +395,11 @@ viejos.
    lo pida.
 3. El sistema de reversión por RSI extremo en 1H como estrategia SEPARADA
    ya no es un pendiente: quedó absorbido dentro de la Metodología v2.
+4. ETH (`ETHUSDm`) queda evaluado y con el código listo pero apagado
+   (`ENABLE_ETH=false`) - ver "Evaluación de ETH como tercer símbolo" más
+   abajo. No revisitar activarlo sin (a) verificar las specs reales de
+   contrato de `ETHUSDm` en el Market Watch de la cuenta y (b) volver a
+   correr el backtest con esas specs confirmadas.
 
 ## Cómo correr cosas
 

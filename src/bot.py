@@ -41,24 +41,33 @@ POLL_INTERVAL_SECONDS = 30
 # estas dos constantes si hace falta.
 XAUUSD_SYMBOL = "XAUUSDm"
 BTCUSD_SYMBOL = "BTCUSDm"
+# Evaluado el 23/09/2026 con el mismo backtest de 7 meses que BTC/Oro (ver
+# CLAUDE.md). Queda con el codigo listo pero APAGADO (`ENABLE_ETH=false` por
+# defecto) hasta que el usuario confirme sumarlo a la cuenta real.
+ETHUSD_SYMBOL = "ETHUSDm"
 
 
-def build_strategies() -> list[StructuralPullbackStrategy]:
-    # Metodologia v2 (seccion 4 del sistema, 14/09/2026) para los dos
-    # instrumentos. El limite dinamico de riesgo de Oro (seccion 3.2: solo
-    # tomar señales cuyo SL tecnico entre en el % de riesgo objetivo al lote
-    # minimo del broker) no se hardcodea aca - lo aplica RiskManager en cada
-    # señal, recalculado sobre el balance real de la cuenta en ese momento.
-    return [
+def build_strategies(config: AppConfig) -> list[StructuralPullbackStrategy]:
+    # Metodologia v2 (seccion 4 del sistema, 14/09/2026) para los
+    # instrumentos activos. El limite dinamico de riesgo de Oro (seccion
+    # 3.2: solo tomar señales cuyo SL tecnico entre en el % de riesgo
+    # objetivo al lote minimo del broker) no se hardcodea aca - lo aplica
+    # RiskManager en cada señal, recalculado sobre el balance real de la
+    # cuenta en ese momento. Mismos parametros por defecto (RSI 35/65,
+    # vela de rechazo) para los tres simbolos, ETH incluido.
+    strategies = [
         StructuralPullbackStrategy(symbol=BTCUSD_SYMBOL, timeframe="H1"),
         StructuralPullbackStrategy(symbol=XAUUSD_SYMBOL, timeframe="H1"),
     ]
+    if config.enable_eth:
+        strategies.append(StructuralPullbackStrategy(symbol=ETHUSD_SYMBOL, timeframe="H1"))
+    return strategies
 
 
 def run() -> None:
     setup_logging()
     config = load_config()
-    strategies = build_strategies()
+    strategies = build_strategies(config)
 
     client = MT5Client(config.mt5)
     risk_manager = RiskManager(config.risk)
