@@ -666,12 +666,27 @@ Implementación:
   clientes/notifiers falsos - no requieren MT5 ni credenciales SMTP reales,
   así que no se pudo probar el envío real de un mail desde este entorno
   (sin acceso a MT5 ni, probablemente, a SMTP saliente) - la primera prueba
-  real la tiene que hacer el usuario en su PC, con `DRY_RUN=true` primero
-  para confirmar que llega el mail de "[SIMULADO]" antes de esperar una
-  operación real.
+  real la tuvo que hacer el usuario en su PC.
+- `scripts/test_email.py` (24/09/2026, agregado después de activar el
+  flag): dispara un mail de prueba directo (`notifier.notify_error`) leyendo
+  la config real del `.env`, sin esperar a que el bot abra/cierre una
+  operación real. Se sumó porque el bot en la cuenta real corre con
+  `DRY_RUN=false` (no hay operaciones simuladas que disparen el aviso
+  `[SIMULADO]`), así que validar con una operación real hubiera significado
+  esperar sin saber si el envío de mails andaba. Uso:
+  `python -m scripts.test_email`.
 
-**Sigue APAGADO por defecto** hasta que el usuario cargue sus credenciales
-y confirme que le llegó al menos un mail de prueba.
+**ACTIVADO Y VALIDADO el 24/09/2026** - el usuario generó su Contraseña de
+aplicación de Gmail, cargó `SMTP_USER`/`SMTP_PASSWORD`/`NOTIFY_TO_EMAIL` en
+su `.env` real y confirmó que le llegó el mail de prueba disparado por
+`scripts/test_email.py`. `ENABLE_EMAIL_NOTIFICATIONS=true` en su `.env` de
+producción. Nota para sesiones futuras: la confusión más común al cargar
+estas variables es editarlas en `.env.example` (la plantilla, la que trae
+el repo) en vez de `.env` (el archivo real, gitignored, específico de la
+PC del usuario) - si en algún momento las notificaciones parecen no andar
+pero `load_config()` no tira ningún `ConfigError`, lo primero a chequear es
+`Get-Content .env | Select-String "ENABLE_EMAIL_NOTIFICATIONS"` para
+confirmar que la variable realmente está en el archivo correcto.
 
 ## Próximos pasos pendientes
 
@@ -710,12 +725,12 @@ y confirme que le llegó al menos un mail de prueba.
 7. Timeframe M30 para BTC queda evaluado y rechazado (7 meses completos:
    PF 1.04, DD 42.3%, pierde en la primera mitad del período) - ver
    "Timeframe M30 para BTC" más arriba.
-8. Notificaciones por mail implementadas (`ENABLE_EMAIL_NOTIFICATIONS=false`
-   por defecto) - ver "Notificaciones por mail" más arriba. Falta que el
-   usuario genere su Contraseña de aplicación de Gmail, cargue las
-   credenciales en su `.env` real, y confirme que le llega al menos un
-   mail de prueba (con `DRY_RUN=true`, el aviso de apertura va a decir
-   "[SIMULADO]") antes de darlo por probado en la práctica.
+8. Notificaciones por mail: implementadas y **activadas y validadas en
+   producción el 24/09/2026** - ver "Notificaciones por mail" más arriba.
+   Ya no es un pendiente; queda como referencia el uso de
+   `scripts/test_email.py` si en el futuro hace falta volver a validar el
+   envío (por ejemplo, si el usuario regenera la Contraseña de aplicación
+   de Gmail).
 
 ## Cómo correr cosas
 
