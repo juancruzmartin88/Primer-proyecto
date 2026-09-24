@@ -172,6 +172,24 @@ asumir que está mal cargado.
     capital total (2 de 47 señales pasan, ambas perdedoras). Queda detrás
     de `ENABLE_BREAKOUT_STRATEGY=false` en `src/bot.py`/`src/config.py` -
     ver la sección de backtest más abajo para el detalle completo.
+15. **Stop a breakeven evaluado (24/09/2026) — RECHAZADO, sin flag de
+    producción.** Regla de gestión de salida (mover el SL a entrada+1
+    punto al alcanzar 50%/70% de la distancia al TP) sobre la Metodología
+    v2, BTC y Oro. En BTC (muestra confiable, 56-61 trades) ambas variantes
+    BAJAN el profit factor respecto al baseline (1.80→1.62 al 50%,
+    1.80→1.73 al 70%) aunque numéricamente sigan por encima de 1.5 y suban
+    el win rate - cortar ganadoras a cambio de una mejora chica en
+    aciertos rompe la misma asimetría (ganancia grande/pérdida chica) que
+    ya se identificó como el motor del sistema al rechazar el límite de
+    tiempo (decisión 10). A diferencia de ETH/Breakout, acá NO se dejó un
+    flag de producción (`ENABLE_BREAKOUT_STRATEGY`-style) porque el
+    resultado es un rechazo claro y esto requeriría agregar una modificación
+    de posición real en `MT5Client` (inexistente hoy) sin ningún caso de uso
+    - se prefirió no sumar ese código sin testear en vivo por una función
+    que no se va a activar. Queda listo y testeado a nivel de lógica pura
+    (`src/breakeven_stop.py`) e integrado en el backtester
+    (`run_backtest(enable_breakeven_stop=...)`) para revisitar sin
+    reescribir nada si en el futuro cambia el criterio.
 
 ## Backtest de validación de la v2 (14/09/2026, antes de desplegar a real)
 
@@ -481,6 +499,75 @@ de entrada (por ejemplo, un filtro de tendencia de marco mayor que filtre
 rupturas en contra de la tendencia dominante) y volver a correr el
 backtest completo, no solo ajustar el bucket de capital.
 
+## Backtest del stop a breakeven (24/09/2026) — RECHAZADO
+
+El usuario pidió backtestear una regla de gestión (no de entrada, no toca
+la Metodología v2): cuando una operación abierta alcanza X% de la distancia
+al TP, mover el SL al precio de entrada + 1 punto (cubre spread/comisión).
+Probar 50% y 70%, sobre BTC y Oro, mismos 7 meses de siempre, comparando
+contra el benchmark vigente.
+
+Implementado en `src/breakeven_stop.py` (`breakeven_stop_price`, 6 tests en
+`tests/test_breakeven_stop.py`) e integrado en `src/backtester.py`
+(`run_backtest(enable_breakeven_stop=..., breakeven_trigger_pct=...,
+breakeven_buffer=...)`) - el SL se actualiza usando el high/low de cada
+vela (no el cierre) para no perderse un toque intra-vela, y nunca se mueve
+en contra (solo "sube" para BUY / "baja" para SELL).
+
+**Resultado** (balance real $746.24, riesgo 2%, modo real, buffer 1 punto):
+
+| Instrumento | Variante | Trades | Win rate | Profit factor | Drawdown | Salidas SL / TP / Breakeven |
+|---|---|---|---|---|---|---|
+| BTCUSD | Baseline (sin regla) | 56 | 48.2% | **1.80** | 8.1% | 29 / 27 / — |
+| BTCUSD | Breakeven 50% | 61 | 57.4% | 1.62 | 7.4% | 26 / 21 / 14 |
+| BTCUSD | Breakeven 70% | 61 | 50.8% | 1.73 | 8.1% | 30 / 25 / 6 |
+| XAUUSD | Baseline (sin regla) | 2 | 50.0% | 2.36 | 1.6% | 1 / 1 / — |
+| XAUUSD | Breakeven 50%/70% | 2 | 50.0% | 0.17 | 1.6% | 1 / 0 / 1 |
+
+(Nota: el baseline de BTC acá da 1.80/56 trades en vez del 1.88/59 trades
+de referencia porque corre sobre $746.24 en vez de $654.77 - mismo "efecto
+conocido del motor de backtest de una sola posición a la vez" ya
+documentado antes, no una regresión.)
+
+**En Oro la muestra sigue siendo de 2 trades** (mismo cuello de botella de
+capital de siempre) - no da para concluir nada en general, pero sí sirve
+para ilustrar el mecanismo sin ambigüedad: se verificó operación por
+operación que la lógica es correcta (no es un bug). La operación ganadora
+(BUY, TP a +$27.98) tocó el 50% del camino al TP y el SL subió a
+entrada+1 punto; el precio revirtió y la cerró ahí, en +$2.00 en vez de
++$27.98 - la otra operación (la perdedora, -$11.87) no cambió. Neto:
++$16.12 → -$9.87.
+
+**En BTC (muestra confiable) el resultado es más sutil que un simple
+rechazo por número**: las dos variantes SUBEN el win rate (48.2%→57.4%/
+50.8%) y técnicamente el profit factor sigue arriba de 1.5 en ambas (1.62 y
+1.73) - el número absoluto que pidió el usuario como criterio ("solo se
+activa si PF>1.5") se cumple. Pero comparado contra el benchmark actual
+(1.80), **ambas variantes son un retroceso, no una mejora** - cortar
+operaciones ganadoras en el 50-70% del camino cambia más aciertos por
+ganancias más chicas, la misma asimetría (pocas ganancias grandes
+compensan varias pérdidas chicas) que ya se identificó como el motor real
+del sistema al rechazar el límite de tiempo (decisión 10) y al aceptar
+RSI 35/65 justamente porque ahí SÍ mejoraba todo a la vez. 70% se acerca
+más al baseline que 50% (corta menos operaciones prematuramente: 6 vs 14),
+pero ninguna de las dos supera lo que ya hay.
+
+**Decisión: NO se activa, en ninguno de los dos umbrales.** El criterio
+numérico aislado (PF>1.5) se cumple pero el objetivo real - mejorar sobre
+lo que ya funciona - no, así que se aplica el mismo espíritu que en el
+resto de las decisiones de este documento (nunca se adoptó un cambio que
+sacrifique profit factor a cambio de win rate). A diferencia de ETH y la
+estrategia de ruptura, acá no se dejó un flag `ENABLE_BREAKEVEN_STOP` para
+producción: activar esto en vivo requeriría agregar una operación de
+modificación de posición real a `MT5Client` (no existe hoy, solo
+`send_order`/`close_position`) - construir y dejar inerte ese código sin
+haberlo probado contra una conexión MT5 real, para una función que dio
+rechazo claro, es riesgo sin beneficio. Si se quiere reconsiderar, la
+lógica ya está lista y testeada en `src/breakeven_stop.py` +
+`run_backtest(enable_breakeven_stop=...)` - alcanza con volver a correr el
+backtest con otros umbrales/buffer, no hace falta escribir la regla de
+nuevo.
+
 ## Próximos pasos pendientes
 
 1. Juntar operaciones reales de la cuenta real con la Metodología v2 (RSI
@@ -507,6 +594,14 @@ backtest completo, no solo ajustar el bucket de capital.
    "Estrategia de ruptura de consolidación" más abajo. No revisitar sin
    repensar el criterio de entrada primero (el problema es la calidad de
    la señal, no el bucket de capital ni el esquema de SL/TP).
+6. El stop a breakeven (50%/70% de distancia al TP) queda evaluado y
+   rechazado - ver "Backtest del stop a breakeven" más abajo. Baja el
+   profit factor de BTC frente al baseline en las dos variantes probadas
+   (aunque sube el win rate); no tiene flag de producción porque además
+   requeriría agregar modificación de posición real a `MT5Client`. Si se
+   revisita, probar primero con otros umbrales/buffer sobre
+   `run_backtest(enable_breakeven_stop=...)` antes de construir la parte
+   de MT5.
 
 ## Cómo correr cosas
 
@@ -520,6 +615,6 @@ cd Primer-proyecto
 python -m src.bot
 ```
 
-Los tests (`pytest tests/ -v`, 53 tests) y los scripts de backtest
+Los tests (`pytest tests/ -v`, 59 tests) y los scripts de backtest
 (`scripts/backtest_from_csv.py`, `scripts/list_signals.py`) corren en
 cualquier entorno con las dependencias instaladas, no requieren MT5.

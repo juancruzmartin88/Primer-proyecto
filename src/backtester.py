@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 import pandas as pd
 from loguru import logger
 
+from src.breakeven_stop import DEFAULT_BREAKEVEN_BUFFER, DEFAULT_TRIGGER_PCT, breakeven_stop_price
 from src.indicators import atr, rsi
 from src.risk_manager import RiskLimitExceeded, RiskManager
 from src.strategy_base import Strategy
@@ -77,6 +78,9 @@ def run_backtest(
     enable_time_exit: bool = False,
     max_hours_open: float = DEFAULT_MAX_HOURS_OPEN,
     stall_atr_mult: float = DEFAULT_STALL_ATR_MULT,
+    enable_breakeven_stop: bool = False,
+    breakeven_trigger_pct: float = DEFAULT_TRIGGER_PCT,
+    breakeven_buffer: float = DEFAULT_BREAKEVEN_BUFFER,
 ) -> BacktestResult:
     """Recorre `data` vela a vela, simulando entradas/salidas de la estrategia.
 
@@ -107,6 +111,17 @@ def run_backtest(
     sin acercarse a TP/SL, se cierra al precio de cierre de esa vela. Usa
     `rsi_period`/`atr_period` de la propia `strategy` para los indicadores
     de la regla (los mismos que ya usa para generar señales).
+
+    `enable_breakeven_stop` simula la regla de `src.breakeven_stop`
+    (24/09/2026): cuando el precio mas favorable de la vela (high para
+    BUY, low para SELL) alcanza `breakeven_trigger_pct` de la distancia
+    ORIGINAL entrada-TP, el SL sube a entrada + `breakeven_buffer` (una
+    sola vez, nunca se mueve en contra) - se evalua ANTES de chequear
+    hit_sl/hit_tp de la misma vela, asi que una vela que toca el umbral y
+    despues revierte contra el nuevo SL en la misma vela cuenta como
+    salida a breakeven, no como TP ni como el SL original (misma
+    simplificacion de "SL con prioridad sobre TP en la misma vela" que ya
+    usa el motor).
     """
     result = BacktestResult(initial_balance=initial_balance)
     balance = initial_balance
@@ -117,6 +132,23 @@ def run_backtest(
         candle = data.iloc[i]
 
         if open_trade is not None:
+            if enable_breakeven_stop:
+                favorable_price = candle["high"] if open_trade["signal"] == Signal.BUY else candle["low"]
+                new_sl = breakeven_stop_price(
+                    direction=open_trade["signal"],
+                    entry_price=open_trade["entry"],
+                    take_profit_price=open_trade["tp"],
+                    favorable_price=favorable_price,
+                    trigger_pct=breakeven_trigger_pct,
+                    buffer=breakeven_buffer,
+                )
+                if new_sl is not None:
+                    if open_trade["signal"] == Signal.BUY:
+                        open_trade["sl"] = max(open_trade["sl"], new_sl)
+                    else:
+                        open_trade["sl"] = min(open_trade["sl"], new_sl)
+                    open_trade["breakeven_applied"] = True
+
             hit_sl = (
                 candle["low"] <= open_trade["sl"]
                 if open_trade["signal"] == Signal.BUY
@@ -151,7 +183,10 @@ def run_backtest(
                 pips = (exit_price - open_trade["entry"]) / pip_size * direction
                 pnl = pips * pip_value_per_lot * open_trade["volume"]
                 balance += pnl
-                exit_reason = "sl" if hit_sl else "tp" if hit_tp else "tiempo"
+                if hit_sl:
+                    exit_reason = "breakeven" if open_trade["breakeven_applied"] else "sl"
+                else:
+                    exit_reason = "tp" if hit_tp else "tiempo"
                 result.trades.append({**open_trade, "exit": exit_price, "pnl": pnl, "exit_reason": exit_reason})
                 open_trade = None
             continue
@@ -187,6 +222,7 @@ def run_backtest(
                 "tp": tp_price,
                 "volume": volume,
                 "entry_time": candle["time"],
+                "breakeven_applied": False,
             }
 
     return result
