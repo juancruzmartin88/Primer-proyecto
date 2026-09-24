@@ -776,6 +776,67 @@ específico para Plata (por ejemplo, un ATR mínimo o un timeframe distinto)
 en vez de asumir que los mismos parámetros de BTC/Oro van a funcionar
 igual de bien en un tercer instrumento con dinámica de precio distinta.
 
+## Diferencia entre operaciones manuales y detección del bot en Oro (24/09/2026)
+
+El usuario tomó 2 operaciones manuales en `XAUUSDm` esa semana (Buy Limit,
+SL chico dentro de lo que permite el filtro de capital) y preguntó si el
+bot había visto esas mismas señales (RSI real + vela de rechazo + nivel
+estructural) y las descartó, o directamente no las detectó, y por qué:
+
+- 23/09: Buy Limit 4.284, SL 4.273 (11 puntos)
+- 24/09 (mañana): Buy Limit 4.256, SL 4.248 (8 puntos)
+
+**Diagnóstico**: no hay acceso a `logs/bot.log` de esas fechas desde este
+sandbox (vive solo en la PC del usuario), así que en vez de especular se
+reprodujo `StructuralPullbackStrategy._analyze()` (la lógica exacta de
+producción) vela por vela contra velas H1 reales de Oro del 22 al 24/09
+(Twelve Data, spot XAU/USD - posible pequeño desvío de precio/huso horario
+de vela contra el feed real de Exness, pero suficiente para diagnóstico).
+El bot sí generó señales BUY en la ventana (7 en total, 14-25/09), pero
+ninguna coincide con las dos operaciones puntuales del usuario. Causa
+distinta para cada una:
+
+- **24/09 - timing exacto del cierre de vela**: hubo DOS velas de rechazo
+  válidas (martillo) a las 04:00 y 05:00 (UTC) que el bot descartó porque
+  la vela de confirmación siguiente cerró bajista en vez de alcista. Recién
+  a las 08:00 se dio el par martillo+confirmación alcista - para entonces
+  el precio ya estaba en 4.289 (no 4.256), con RSI en 36.4 (recién cruzando
+  el umbral). El bot sí llegó a generar una señal BUY en esa vela, pero muy
+  distinta a la del usuario: entrada 4.289, SL 4.264 (25.5 puntos) - un
+  stop mucho más ancho que los 8 puntos manuales, porque
+  `_calculate_stop_loss` usa el mínimo de toda la ventana de pullback
+  (8 velas) menos margen de ATR, no el punto técnico más ajustado posible.
+  Esta es la misma razón estructural por la que el filtro de capital
+  (sección 3.2) bloquea tanto a Oro: los SL del bot son sistemáticamente
+  más anchos que un SL manual calibrado a mano para entrar bajo el filtro.
+- **23/09 - vela de rechazo más estricta que la lectura visual**: el precio
+  sí tocó una zona cercana a 4.284 (low 4.281) con RSI en 26.3 (sobreventa
+  clara) a las 23:00 UTC, pero la vela previa (22:00, la vela de rechazo
+  que evalúa el bot) tiene un cuerpo bajista grande - geométricamente no
+  cumple el test de martillo (`is_hammer`: mecha ≥1.5x el cuerpo Y la mecha
+  opuesta ≤30% del rango), la clasificó como estrella fugaz (patrón
+  bajista). Como el patrón no calificó, la condición 4 de la Metodología v2
+  nunca se evaluó para BUY en ese punto, sin importar que el nivel y el RSI
+  sí estuvieran en zona.
+- **Detección de niveles**: no fue el problema en ninguno de los dos casos
+  - siempre hubo un nivel (manual o fractal) cerca del precio en las velas
+  relevantes.
+- **Diferencia estructural de fondo (aplica a ambos casos)**: el usuario
+  entró con **Buy Limit** (orden pendiente esperando que el precio baje al
+  nivel). El bot **nunca coloca órdenes pendientes** - solo manda mercado
+  en la vela ya cerrada (decisión de arquitectura del 14/09, ver decisión
+  7). Aunque el bot reconociera exactamente el mismo setup, el mecanismo de
+  entrada (precio, timing, y por lo tanto el SL resultante) iba a diferir
+  siempre de una Buy Limit manual.
+
+**No se tocó ningún parámetro de la estrategia** - el usuario aclaró
+explícitamente que no estaba pidiendo aflojar el filtro de capital, sino
+entender si había una diferencia real de detección. La respuesta es sí,
+por dos motivos puntuales y distintos (timing de confirmación en un caso,
+estrictez geométrica de la vela de rechazo en el otro), más una diferencia
+de fondo en el tipo de orden que aplica siempre. Queda documentado acá para
+no tener que re-investigar si vuelve a surgir la misma pregunta.
+
 ## Próximos pasos pendientes
 
 1. Juntar operaciones reales de la cuenta real con la Metodología v2 (RSI
@@ -828,6 +889,14 @@ igual de bien en un tercer instrumento con dinámica de precio distinta.
    código nuevo para reconsiderarlo, ya es instanciable con la clase
    existente. No revisitar sin repensar el criterio de entrada para este
    instrumento en particular (el problema es la señal, no el capital).
+10. Diferencia entre operaciones manuales y detección del bot en Oro
+    (24/09/2026) - ya respondida, no es un pendiente accionable, queda
+    como referencia. Ver "Diferencia entre operaciones manuales y
+    detección del bot en Oro" más arriba: timing de confirmación y
+    estrictez de la vela de rechazo explican las 2 operaciones puntuales
+    analizadas, más la diferencia de fondo de tipo de orden (Buy Limit
+    manual vs. mercado en vela cerrada del bot). No se cambió ningún
+    parámetro de la estrategia.
 
 ## Cómo correr cosas
 
