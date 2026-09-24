@@ -688,6 +688,94 @@ pero `load_config()` no tira ningún `ConfigError`, lo primero a chequear es
 `Get-Content .env | Select-String "ENABLE_EMAIL_NOTIFICATIONS"` para
 confirmar que la variable realmente está en el archivo correcto.
 
+## Evaluación de Plata (XAG/USD) como tercer instrumento (24/09/2026) — RECHAZADA
+
+El usuario pidió evaluar `XAGUSDm` con exactamente los mismos parámetros ya
+validados de BTC/Oro (Metodología v2 completa: RSI 35/65, giro confirmado,
+vela de rechazo, nivel técnico manual ∪ fractal, riesgo 2% por operación),
+sobre el mismo período de 7 meses de referencia, comparando contra el
+benchmark de BTC (PF 1.88, DD 7.6%) y revisando en particular cómo le pega
+el filtro de capital de la sección 3.2 (el mismo que tiene dormido a Oro).
+
+**Datos**: Twelve Data no deja bajar `XAG/USD` con el plan conectado
+actualmente ("requiere plan Grow o Venture") - a diferencia de Oro y BTC,
+que sí están disponibles. Se resolvió pidiéndole al usuario que exportara
+el histórico directo desde su MT5 (`Symbols → Bars → XAGUSDm → H1 →
+Export`, cubriendo 2025-01-01 a hoy) - 10.233 velas H1 reales del broker,
+de las cuales se recortaron las 3.392 que caen en el mismo período de 7
+meses usado de referencia para BTC/Oro/ETH (13/02/2026-10/09/2026). Menos
+velas que las 5.000 de BTC porque Plata no opera 24/7 (igual que Oro).
+CSV gitignored en `data/xagusd_h1_raw.csv`, se puede regenerar pidiendo el
+mismo export.
+
+**Specs de contrato verificadas** (a diferencia de ETH, que quedó con una
+suposición sin confirmar): la ventana "Symbols" de MT5 mostró la
+especificación real de `XAGUSDm` - Categoría Metals, 3 decimales,
+**contract size 5.000 XAG** (5.000 onzas por lote), margen en XAG,
+ganancia en USD. Traducido a los parámetros del backtester:
+`pip_size=0.001`, `pip_value_per_lot=5.0` (5.000 oz × $0.001).
+
+**Resultado** (balance real $715.24, riesgo 2%, `StructuralPullbackStrategy`
+sin ningún parámetro modificado, niveles manuales vacíos para `XAGUSDm` en
+`config/levels.json` → fractales puros):
+
+| Modo | Trades | Win rate | Profit factor | Drawdown |
+|---|---|---|---|---|
+| Lote fijo 1.0 (calidad de señal pura) | 25 | 16.0% | **0.24** | 1731.9%* |
+| Riesgo 2% real (exploratorio, sin filtro de capital) | 25 | 16.0% | **0.24** | 242.1%* |
+| Riesgo 2% real (**realista**, con filtro sección 3.2) | **0** | — | 0.00 | — |
+
+(*El drawdown de estas dos filas no es literal - el motor del backtest no
+frena en cuenta negativa, el balance simulado llegó a valores negativos
+varias veces en el log de detalle. Solo ilustra que, sin el filtro de
+capital, la cuenta real se hubiera destruido varias veces sobre este
+período - mismo disclaimer que en todos los backtests de "lote fijo"
+anteriores, pero acá aplica también a la fila de riesgo real porque la
+señal es mala independientemente del sizing.)
+
+Comparado contra el benchmark vigente de BTC (**PF 1.88, WR 47.5%, DD
+7.6%**): Plata queda muy por debajo en las tres métricas, sin punto de
+comparación cercano - ni siquiera se acerca al nivel de ETH (PF 1.09) o
+Breakout (PF 1.06-1.11), que ya habían sido rechazados.
+
+**Sobre el filtro de capital de la sección 3.2 (pregunta explícita del
+usuario)**: le pega **igual o peor que a Oro** - las 25 señales quedaron
+bloqueadas en modo realista, 0 pasan. El SL técnico observado en las 25
+señales forzaba entre 3.4% y 692% de riesgo real al lote mínimo (mediana
+bien por encima del 2% objetivo) - mismo problema estructural que Oro: el
+contrato de 5.000 onzas por lote hace que hasta un SL "ajustado" en
+términos de la estrategia sea grande en dólares al lote mínimo del broker.
+
+**La diferencia clave con Oro, que hace que esto no sea "dormir el código
+esperando más capital" como con Oro**: en Oro, la calidad de señal en modo
+exploratorio ya era buena desde el principio (PF 1.69 en el backtest del
+14/09/2026) - el único obstáculo era el capital, y se espera que se
+resuelva solo cuando la cuenta crezca. **En Plata, ni sacando el filtro de
+capital funciona** (PF 0.24, WR 16% en modo exploratorio) - el problema no
+es solo el lote mínimo, la señal misma no es buena en H1 con estos
+parámetros. Con solo 25 trades la muestra es chica (similar a ETH/Breakout),
+pero un PF de 0.24 y WR de 16% es una diferencia demasiado grande para
+necesitar una validación por mitades como se hizo con RSI 35/65 - no es un
+caso límite.
+
+**Decisión: NO se activa.** No cumple el criterio del usuario (PF > 1.5 sin
+ser una regresión) por un margen amplio, y además falla la pregunta sobre
+el filtro de capital (0 de 25 señales ejecutables en cuenta real, igual que
+Oro). A diferencia de ETH y Breakout, **no se agregó ningún flag de
+producción** (`ENABLE_SILVER`-style) porque no hace falta código nuevo para
+reconsiderarlo - `StructuralPullbackStrategy(symbol="XAGUSDm",
+timeframe="H1")` ya es instanciable tal cual con la clase existente (mismo
+patrón que se usó para descartar M30). Se agregó la clave `XAGUSDm: []`
+(vacía) a `config/levels.json` para que el backtest pudiera correr con
+fallback a fractales, sin niveles manuales cargados.
+
+Si en el futuro se quiere reconsiderar: el problema de fondo es la calidad
+de la señal en Plata H1 (WR 16%), no el capital ni el sizing - antes de
+volver a intentarlo, pensar si tiene sentido un filtro o parámetro
+específico para Plata (por ejemplo, un ATR mínimo o un timeframe distinto)
+en vez de asumir que los mismos parámetros de BTC/Oro van a funcionar
+igual de bien en un tercer instrumento con dinámica de precio distinta.
+
 ## Próximos pasos pendientes
 
 1. Juntar operaciones reales de la cuenta real con la Metodología v2 (RSI
@@ -731,6 +819,15 @@ confirmar que la variable realmente está en el archivo correcto.
    `scripts/test_email.py` si en el futuro hace falta volver a validar el
    envío (por ejemplo, si el usuario regenera la Contraseña de aplicación
    de Gmail).
+9. Plata (`XAGUSDm`) evaluada como tercer instrumento y **rechazada**
+   (24/09/2026) - ver "Evaluación de Plata (XAG/USD) como tercer
+   instrumento" más arriba. PF 0.24 / WR 16.0% incluso sin el filtro de
+   capital (falla la calidad de señal, no solo el sizing), y además el
+   filtro de capital de la sección 3.2 bloquea el 100% de las señales
+   (0 de 25) igual que a Oro. Sin flag de producción - no hace falta
+   código nuevo para reconsiderarlo, ya es instanciable con la clase
+   existente. No revisitar sin repensar el criterio de entrada para este
+   instrumento en particular (el problema es la señal, no el capital).
 
 ## Cómo correr cosas
 
