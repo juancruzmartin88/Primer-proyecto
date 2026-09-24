@@ -201,6 +201,44 @@ Un símbolo sin ninguna línea en el log **no es evidencia de falla** - el
 bot solo escribe algo cuando pasa algo (señal, bloqueo, error, orden), no
 en cada vuelta del loop que no encuentra nada (ver `src/bot.py::iterate`).
 
+## Notificaciones por mail (24/09/2026)
+
+Con `ENABLE_EMAIL_NOTIFICATIONS=true` en tu `.env`, el bot te manda un mail
+cuando:
+- Abre una operación real (instrumento, dirección, entrada, SL, TP).
+- Se cierra una operación que el bot abrió (por TP, SL, o manual) - con el
+  resultado en dólares, leído directo del historial de MT5.
+- Encuentra un error inesperado (por ejemplo, se corta la conexión con MT5).
+
+**Nunca** manda un mail por cada bloqueo de gestión de riesgo (eso pasa
+cada 30 segundos mientras tengas una posición manual abierta - sería puro
+spam, ver `logs/bot.log` de cualquier día con una posición manual abierta
+como ejemplo).
+
+Pasos para activarlo (usando Gmail):
+
+1. Andá a [myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords)
+   (necesitás tener la verificación en dos pasos activada en tu cuenta de
+   Google - si no la tenés, te va a pedir activarla primero).
+2. Creá una nueva "Contraseña de aplicación" (podés ponerle el nombre que
+   quieras, ej. "bot trading"). Te va a mostrar una contraseña de 16 letras
+   - **copiala, no la vas a poder ver de nuevo**.
+3. En tu `.env`, completá:
+   ```
+   ENABLE_EMAIL_NOTIFICATIONS=true
+   SMTP_USER=tu_mail@gmail.com
+   SMTP_PASSWORD=la_contraseña_de_16_letras_del_paso_2
+   NOTIFY_TO_EMAIL=tu_mail@gmail.com
+   ```
+   (`SMTP_PASSWORD` es esa contraseña de aplicación, **no** tu contraseña
+   normal de Gmail - la contraseña normal no funciona para esto).
+4. Reiniciá el bot. Si falta alguna de las tres variables con
+   `ENABLE_EMAIL_NOTIFICATIONS=true`, el bot no arranca y te dice
+   exactamente cuál falta.
+
+Un fallo al mandar el mail (por ejemplo, sin internet en ese momento)
+nunca frena el trading - solo queda logueado en `logs/bot.log`.
+
 ## Puesta en marcha (cuenta real, 14/09/2026)
 
 El bot **no corre en este repositorio remoto** — necesita el terminal

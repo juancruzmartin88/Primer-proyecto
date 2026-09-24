@@ -27,6 +27,7 @@ from src.config import AppConfig, RiskConfig, load_config
 from src.indicators import atr, rsi
 from src.logger_setup import setup_logging
 from src.mt5_client import MT5Client, OpenPosition
+from src.notifier import EmailConfig, EmailNotifier
 from src.risk_manager import RiskLimitExceeded, RiskManager
 from src.strategies.breakout import BreakoutStrategy
 from src.strategies.structural_pullback import StructuralPullbackStrategy
@@ -73,24 +74,58 @@ def build_strategies(config: AppConfig) -> list[StructuralPullbackStrategy | Bre
     return strategies
 
 
+def build_notifier(config: AppConfig) -> EmailNotifier | None:
+    # Notificaciones por mail (24/09/2026): APAGADAS por defecto hasta que
+    # el usuario cargue sus credenciales SMTP - ver src/notifier.py y
+    # CLAUDE.md ("Timeframe M30 para BTC", el problema real que resuelve).
+    if not config.enable_email_notifications:
+        return None
+    return EmailNotifier(
+        EmailConfig(
+            smtp_host=config.smtp_host,
+            smtp_port=config.smtp_port,
+            smtp_user=config.smtp_user,
+            smtp_password=config.smtp_password,
+            to_email=config.notify_to_email,
+        )
+    )
+
+
 def run() -> None:
     setup_logging()
     config = load_config()
     strategies = build_strategies(config)
+    notifier = build_notifier(config)
 
     client = MT5Client(config.mt5)
     risk_manager = RiskManager(config.risk)
 
     logger.info(
-        "Arrancando bot | dry_run={} | simbolos={} | timeframe=H1 | riesgo_por_operacion={}%",
+        "Arrancando bot | dry_run={} | simbolos={} | timeframe=H1 | riesgo_por_operacion={}% | "
+        "notificaciones_por_mail={}",
         config.dry_run,
         [s.symbol for s in strategies],
         config.risk.risk_per_trade_pct,
+        config.enable_email_notifications,
     )
     if not config.dry_run:
         logger.warning("MODO REAL: el bot va a enviar ordenes reales al broker.")
 
     client.connect()
+
+    # Estado de "que posicion propia del bot esta abierta en cada simbolo",
+    # por simbolo (no por estrategia - dos estrategias sobre el mismo
+    # simbolo, ej. BTC con Metodologia v2 + BreakoutStrategy si algun dia se
+    # activa, comparten el mismo casillero de posicion). Se usa solo para
+    # detectar cierres y avisar por mail - se inicializa con lo que ya este
+    # abierto al arrancar, para no perderse el cierre de una posicion que
+    # ya existia de una corrida anterior del bot.
+    symbols = sorted({strategy.symbol for strategy in strategies})
+    known_tickets: dict[str, int | None] = {}
+    for symbol in symbols:
+        existing = client.get_open_position_by_bot(symbol)
+        known_tickets[symbol] = existing.ticket if existing else None
+
     for strategy in strategies:
         if strategy.symbol == XAUUSD_SYMBOL:
             logger.info(
@@ -112,13 +147,22 @@ def run() -> None:
             )
     try:
         while True:
+            for symbol in symbols:
+                _check_position_closed(client, symbol, known_tickets, notifier)
             for strategy in strategies:
                 try:
-                    iterate(client, strategy, risk_manager, config)
+                    iterate(client, strategy, risk_manager, config, notifier, known_tickets)
                 except RiskLimitExceeded as exc:
+                    # Bloqueo esperado (posicion ya abierta, riesgo excedido,
+                    # etc.) - NUNCA se notifica por mail: pasa cada 30
+                    # segundos mientras haya una posicion manual abierta, y
+                    # mandar un mail por cada uno seria spam puro (ver el
+                    # caso real del 22-24/09/2026 en CLAUDE.md).
                     logger.warning("Operacion bloqueada por gestion de riesgo ({}): {}", strategy.symbol, exc)
-                except Exception:
+                except Exception as exc:
                     logger.exception("Error inesperado en la iteracion del bot ({}).", strategy.symbol)
+                    if notifier:
+                        notifier.notify_error(context=strategy.symbol, message=str(exc))
             time.sleep(POLL_INTERVAL_SECONDS)
     except KeyboardInterrupt:
         logger.info("Bot detenido manualmente.")
@@ -126,7 +170,33 @@ def run() -> None:
         client.disconnect()
 
 
-def iterate(client: MT5Client, strategy, risk_manager: RiskManager, config: AppConfig) -> None:
+def _check_position_closed(
+    client: MT5Client, symbol: str, known_tickets: dict[str, int | None], notifier: EmailNotifier | None
+) -> None:
+    """Compara la posicion propia del bot en `symbol` contra la ultima
+    conocida - si la que conociamos ya no esta, se cerro (por SL/TP del
+    broker, por el bot, o manual) y se notifica. No distingue el motivo del
+    cierre, solo que ya no esta - el detalle (ganancia/perdida, precio de
+    cierre) sale del historial de MT5 via `get_closed_trade_info`."""
+    previous_ticket = known_tickets.get(symbol)
+    current = client.get_open_position_by_bot(symbol)
+    current_ticket = current.ticket if current else None
+    if previous_ticket is not None and current_ticket != previous_ticket:
+        logger.info("{}: la posicion #{} ya no esta abierta (cerrada).", symbol, previous_ticket)
+        if notifier:
+            info = client.get_closed_trade_info(previous_ticket)
+            notifier.notify_trade_closed(symbol=symbol, ticket=previous_ticket, info=info)
+    known_tickets[symbol] = current_ticket
+
+
+def iterate(
+    client: MT5Client,
+    strategy,
+    risk_manager: RiskManager,
+    config: AppConfig,
+    notifier: EmailNotifier | None = None,
+    known_tickets: dict[str, int | None] | None = None,
+) -> None:
     account = client.get_account_info()
     # Kill switch diario: comparte el mismo contador de PnL realizado entre
     # los dos instrumentos (es un limite de cuenta, no por simbolo).
@@ -215,6 +285,23 @@ def iterate(client: MT5Client, strategy, risk_manager: RiskManager, config: AppC
         take_profit=tp_price,
     )
     client.send_order(order, dry_run=config.dry_run)
+
+    if notifier:
+        notifier.notify_trade_opened(
+            symbol=strategy.symbol,
+            signal=signal,
+            entry_price=entry_price,
+            stop_loss=sl_price,
+            take_profit=tp_price,
+            volume=size_result.volume,
+            dry_run=config.dry_run,
+        )
+    if not config.dry_run and known_tickets is not None:
+        # Orden real ya enviada - guardar el ticket de la posicion nueva
+        # para poder detectar su cierre mas adelante (`_check_position_closed`).
+        new_position = client.get_open_position_by_bot(strategy.symbol)
+        if new_position is not None:
+            known_tickets[strategy.symbol] = new_position.ticket
 
 
 def _manage_open_position(

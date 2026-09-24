@@ -69,6 +69,20 @@ class OpenPosition:
     take_profit: float
 
 
+@dataclass(frozen=True)
+class ClosedTradeInfo:
+    """Resultado de una posicion ya cerrada, leido del historial de deals de
+    MT5 (`history_deals_get`) - usado para las notificaciones por mail
+    (`src/notifier.py`), no depende de que el bot mismo haya cerrado la
+    posicion (tambien cubre cierres por SL/TP del broker)."""
+
+    ticket: int
+    symbol: str
+    profit: float
+    exit_price: float
+    exit_time: datetime
+
+
 class MT5Client:
     def __init__(self, config: MT5Config) -> None:
         self.config = config
@@ -172,6 +186,31 @@ class MT5Client:
                 take_profit=p.tp,
             )
         return None
+
+    def get_closed_trade_info(self, ticket: int) -> ClosedTradeInfo | None:
+        """Resultado de una posicion que ya se cerro (por SL/TP del broker,
+        por el bot, o incluso manual), leyendo el historial de deals de MT5
+        - no requiere que el bot mismo haya cerrado la posicion. Devuelve
+        None si el historial todavia no tiene el/los deal(s) de salida
+        (`DEAL_ENTRY_OUT`) para ese ticket, por ejemplo por una demora del
+        broker en registrarlos.
+        """
+        mt5 = self._mt5_module()
+        deals = mt5.history_deals_get(position=ticket)
+        if not deals:
+            return None
+        exit_deals = [d for d in deals if d.entry == mt5.DEAL_ENTRY_OUT]
+        if not exit_deals:
+            return None
+        total_profit = sum(d.profit + d.swap + d.commission for d in exit_deals)
+        last_deal = exit_deals[-1]
+        return ClosedTradeInfo(
+            ticket=ticket,
+            symbol=last_deal.symbol,
+            profit=total_profit,
+            exit_price=last_deal.price,
+            exit_time=datetime.fromtimestamp(last_deal.time, tz=timezone.utc),
+        )
 
     def close_position(self, position: OpenPosition, *, dry_run: bool) -> dict:
         """Cierra una posicion abierta por el bot (limite de tiempo, seccion

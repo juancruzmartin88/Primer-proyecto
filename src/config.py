@@ -99,6 +99,17 @@ class AppConfig:
     # diferencia de la Metodologia v2). Pedido explicito del usuario.
     breakout_bucket_pct: float
     breakout_risk_per_trade_pct: float
+    # Notificaciones por mail (24/09/2026): avisa al abrir/cerrar una
+    # operacion real o ante un error inesperado, sin tener que mirar
+    # logs/bot.log - ver src/notifier.py y CLAUDE.md ("Timeframe M30 para
+    # BTC", el problema real que esto resuelve). APAGADO por defecto hasta
+    # que el usuario cargue sus credenciales SMTP.
+    enable_email_notifications: bool
+    smtp_host: str
+    smtp_port: int
+    smtp_user: str
+    smtp_password: str
+    notify_to_email: str
 
     @property
     def is_real_account_server(self) -> bool:
@@ -139,6 +150,16 @@ def load_config() -> AppConfig:
     )
     live_confirmed = os.getenv("LIVE_TRADING_CONFIRMATION", "") == _LIVE_CONFIRMATION_VALUE
 
+    enable_email_notifications = _get_bool("ENABLE_EMAIL_NOTIFICATIONS", False)
+    smtp_user = os.getenv("SMTP_USER", "")
+    smtp_password = os.getenv("SMTP_PASSWORD", "")
+    notify_to_email = os.getenv("NOTIFY_TO_EMAIL", "")
+    if enable_email_notifications and not (smtp_user and smtp_password and notify_to_email):
+        raise ConfigError(
+            "ENABLE_EMAIL_NOTIFICATIONS=true pero falta SMTP_USER, SMTP_PASSWORD o "
+            "NOTIFY_TO_EMAIL en el .env - las tres son obligatorias para poder enviar avisos."
+        )
+
     config = AppConfig(
         mt5=mt5_config,
         risk=risk_config,
@@ -149,6 +170,12 @@ def load_config() -> AppConfig:
         enable_breakout_strategy=_get_bool("ENABLE_BREAKOUT_STRATEGY", False),
         breakout_bucket_pct=_get_float("BREAKOUT_BUCKET_PCT", 15.0),
         breakout_risk_per_trade_pct=_get_float("BREAKOUT_RISK_PER_TRADE_PCT", 3.0),
+        enable_email_notifications=enable_email_notifications,
+        smtp_host=os.getenv("SMTP_HOST", "smtp.gmail.com"),
+        smtp_port=_get_int("SMTP_PORT", 587),
+        smtp_user=smtp_user,
+        smtp_password=smtp_password,
+        notify_to_email=notify_to_email,
     )
     config.assert_safe_to_trade_live()
     return config

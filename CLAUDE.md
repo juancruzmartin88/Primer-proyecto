@@ -617,7 +617,61 @@ futuro se quiere revisar, sin escribir nada nuevo.
 resuelve tocando la estrategia** - forzar más frecuencia ya demostró
 sistemáticamente empeorar la calidad en este proyecto (RSI sin vela de
 rechazo, ETH, Breakout, breakeven, y ahora M30). Se redirigió a mejorar
-visibilidad (notificaciones) en su lugar - ver próximos pasos.
+visibilidad (notificaciones) en su lugar - ver la sección siguiente.
+
+## Notificaciones por mail (24/09/2026)
+
+Como alternativa real al problema de fondo de la sección anterior (no la
+frecuencia de operaciones, sino la falta de visibilidad durante un tramo
+largo sin señales), se implementaron avisos por mail: apertura de una
+operación real, cierre (con el resultado leído del historial de MT5), y
+errores inesperados. Usuario confirmó: mail
+`juancruzmartin88@gmail.com` para enviar y recibir (no Telegram, no lo
+usa), y los tres eventos (apertura, cierre, errores).
+
+**Deliberadamente NO se notifica cada bloqueo por gestión de riesgo** -
+sería un mail cada 30 segundos mientras haya una posición manual abierta
+(el caso real del 22-24/09/2026, cientos de líneas idénticas en el log) -
+puro spam. Solo transiciones de estado reales.
+
+Implementación:
+- `src/notifier.py`: `EmailNotifier`, SMTP simple (Gmail por defecto,
+  `smtp.gmail.com:587` con STARTTLS) - un fallo al enviar nunca frena el
+  trading, solo se loguea (`logger.exception`).
+- `src/mt5_client.py`: `ClosedTradeInfo` + `get_closed_trade_info(ticket)`,
+  lee `history_deals_get(position=ticket)` y filtra los deals de salida
+  (`DEAL_ENTRY_OUT`) para sacar ganancia/pérdida y precio de cierre - no
+  depende de que el cierre lo haya hecho el bot (cubre SL/TP del broker
+  también).
+- `src/bot.py`: `build_notifier(config)` (None si `enable_email_notifications`
+  es False); `run()` mantiene `known_tickets: dict[symbol, ticket | None]`
+  inicializado con lo que ya esté abierto al arrancar (para no perderse el
+  cierre de una posición de una corrida anterior); `_check_position_closed`
+  se llama una vez por símbolo único al principio de cada vuelta del loop
+  (no por estrategia, para no duplicar si BTC llegara a tener dos
+  estrategias activas sobre el mismo símbolo); `iterate()` notifica la
+  apertura después de `send_order` y actualiza `known_tickets` con el
+  ticket nuevo (solo si no es DRY_RUN); el `except Exception` genérico del
+  loop notifica errores, el `except RiskLimitExceeded` (bloqueos
+  rutinarios) nunca notifica.
+- `src/config.py`: `enable_email_notifications`, `smtp_host`, `smtp_port`,
+  `smtp_user`, `smtp_password`, `notify_to_email` - si el flag está en
+  `true` pero falta alguna de las tres credenciales, `load_config()`
+  tira `ConfigError` explícito en vez de fallar en silencio más tarde.
+- `.env.example`: `ENABLE_EMAIL_NOTIFICATIONS=false` por defecto - el
+  usuario tiene que generar una "Contraseña de aplicación" de Gmail (no su
+  contraseña normal) y cargar `SMTP_USER`/`SMTP_PASSWORD`/`NOTIFY_TO_EMAIL`
+  - pasos completos en README ("Notificaciones por mail").
+- 13 tests nuevos (`tests/test_bot.py`, `tests/test_notifier.py`) con
+  clientes/notifiers falsos - no requieren MT5 ni credenciales SMTP reales,
+  así que no se pudo probar el envío real de un mail desde este entorno
+  (sin acceso a MT5 ni, probablemente, a SMTP saliente) - la primera prueba
+  real la tiene que hacer el usuario en su PC, con `DRY_RUN=true` primero
+  para confirmar que llega el mail de "[SIMULADO]" antes de esperar una
+  operación real.
+
+**Sigue APAGADO por defecto** hasta que el usuario cargue sus credenciales
+y confirme que le llegó al menos un mail de prueba.
 
 ## Próximos pasos pendientes
 
@@ -655,9 +709,13 @@ visibilidad (notificaciones) en su lugar - ver próximos pasos.
    de MT5.
 7. Timeframe M30 para BTC queda evaluado y rechazado (7 meses completos:
    PF 1.04, DD 42.3%, pierde en la primera mitad del período) - ver
-   "Timeframe M30 para BTC" más arriba. El problema real que lo motivó
-   (15 días sin operar da desconfianza) se está resolviendo con
-   notificaciones en vez de tocar la estrategia - en curso.
+   "Timeframe M30 para BTC" más arriba.
+8. Notificaciones por mail implementadas (`ENABLE_EMAIL_NOTIFICATIONS=false`
+   por defecto) - ver "Notificaciones por mail" más arriba. Falta que el
+   usuario genere su Contraseña de aplicación de Gmail, cargue las
+   credenciales en su `.env` real, y confirme que le llega al menos un
+   mail de prueba (con `DRY_RUN=true`, el aviso de apertura va a decir
+   "[SIMULADO]") antes de darlo por probado en la práctica.
 
 ## Cómo correr cosas
 
@@ -671,7 +729,7 @@ cd Primer-proyecto
 python -m src.bot
 ```
 
-Los tests (`pytest tests/ -v`, 61 tests) y los scripts de backtest
+Los tests (`pytest tests/ -v`, 74 tests) y los scripts de backtest
 (`scripts/backtest_from_csv.py`, `scripts/list_signals.py`) corren en
 cualquier entorno con las dependencias instaladas, no requieren MT5. Lo
 mismo `scripts/summarize_bot_log.py` (24/09/2026) - resume `logs/bot.log`
