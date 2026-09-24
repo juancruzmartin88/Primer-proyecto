@@ -568,6 +568,57 @@ lógica ya está lista y testeada en `src/breakeven_stop.py` +
 backtest con otros umbrales/buffer, no hace falta escribir la regla de
 nuevo.
 
+## Timeframe M30 para BTC (24/09/2026) — RECHAZADO
+
+El usuario planteó que 15 días sin ninguna operación (el peor caso del
+backtest de 7 meses en H1) es demasiado tiempo, y preguntó si operar en un
+timeframe menor (M30/M15) generaría más señales sin cambiar la lógica de
+entrada. Se evaluó M30 (mismos parámetros default de
+`StructuralPullbackStrategy`, solo cambiando `timeframe="M30"`).
+
+**Primera corrida (3.5 meses, todo lo que daba una sola descarga de Twelve
+Data)**: 59 trades, WR 42.4%, PF 1.52, DD 14.8% - más del doble de
+frecuencia que H1 (~3.9/semana vs ~2/semana), pero con peor calidad. Un
+tercer chat consultado en paralelo por el usuario recomendó, con buen
+criterio, no decidir con una muestra tan corta y conseguir más historial
+antes de comprometerse - se bajó un segundo tramo de Twelve Data
+(`data/btcusd_m30_raw.csv`, 10000 velas, 26/02/2026-24/09/2026, ~7 meses,
+igual que el período de referencia de H1) sin necesitar que el usuario
+exporte nada de MT5.
+
+**Con los 7 meses completos, la conclusión se invierte**:
+
+| Tramo | Trades | Win rate | Profit factor | Drawdown |
+|---|---|---|---|---|
+| M30, 1ra mitad (feb-jun) | 51 | 27.5% | **0.75** (perdedor) | 28.1% |
+| M30, 2da mitad (jun-sep, la corrida original) | 59 | 42.4% | 1.52 | 14.8% |
+| **M30, 7 meses completos** | 111 | 35.1% | **1.04** | **42.3%** |
+| H1 (referencia vigente, 7 meses) | 59 | 47.5% | **1.88** | 7.6% |
+
+La muestra corta de 3.5 meses resultó ser justo el tramo favorable, no
+representativa del período completo: en la primera mitad M30 pierde plata
+(PF 0.75) y el número global cae a 1.04 (casi empate) con un drawdown del
+42.3% - más de 5 veces el de H1. Es la misma prueba de consistencia entre
+mitades que ya se uso para aceptar RSI 35/65 (mejoraba en las dos mitades)
+y ahí es donde M30 falla: una mitad gana, la otra pierde fuerte - señal de
+que el "nivel tocado"/RSI extremo en M30 es mucho más ruidoso y menos
+estable entre regímenes de mercado que en H1.
+
+**Decisión: NO se activa, ni como bucket separado en paralelo a H1** (la
+sugerencia original era justamente condicional a que el PF se sostuviera
+arriba de 1.5 con más datos - no se sostiene). No se dejó ningún flag de
+producción porque no hace falta código nuevo para reconsiderarlo -
+`StructuralPullbackStrategy(symbol=BTCUSD_SYMBOL, timeframe="M30")` ya es
+instanciable tal cual con la clase existente; alcanza con volver a correr
+`scripts/backtest_from_csv.py` sobre datos de M30 más recientes si en el
+futuro se quiere revisar, sin escribir nada nuevo.
+
+**El problema de fondo (15 días de silencio genera desconfianza) no se
+resuelve tocando la estrategia** - forzar más frecuencia ya demostró
+sistemáticamente empeorar la calidad en este proyecto (RSI sin vela de
+rechazo, ETH, Breakout, breakeven, y ahora M30). Se redirigió a mejorar
+visibilidad (notificaciones) en su lugar - ver próximos pasos.
+
 ## Próximos pasos pendientes
 
 1. Juntar operaciones reales de la cuenta real con la Metodología v2 (RSI
@@ -579,9 +630,9 @@ nuevo.
    lateralización - el caso que motivó la sección 6.1). Esas dos
    operaciones se hicieron con el RSI 30/70 anterior, así que no son
    comparables 1:1 contra el número de referencia nuevo.
-2. Filtro de tendencia de 4H y notificaciones (ej. Telegram) siguen
-   pendientes de una siguiente iteración - no empezar sin que el usuario
-   lo pida.
+2. Filtro de tendencia de 4H sigue pendiente de una siguiente iteración -
+   no empezar sin que el usuario lo pida. Notificaciones (mail, no
+   Telegram - el usuario no lo usa) están en curso, ver punto 7.
 3. El sistema de reversión por RSI extremo en 1H como estrategia SEPARADA
    ya no es un pendiente: quedó absorbido dentro de la Metodología v2.
 4. ETH (`ETHUSDm`) queda evaluado y con el código listo pero apagado
@@ -602,6 +653,11 @@ nuevo.
    revisita, probar primero con otros umbrales/buffer sobre
    `run_backtest(enable_breakeven_stop=...)` antes de construir la parte
    de MT5.
+7. Timeframe M30 para BTC queda evaluado y rechazado (7 meses completos:
+   PF 1.04, DD 42.3%, pierde en la primera mitad del período) - ver
+   "Timeframe M30 para BTC" más arriba. El problema real que lo motivó
+   (15 días sin operar da desconfianza) se está resolviendo con
+   notificaciones en vez de tocar la estrategia - en curso.
 
 ## Cómo correr cosas
 
