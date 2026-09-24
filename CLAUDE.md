@@ -615,6 +615,9 @@ cd Primer-proyecto
 python -m src.bot
 ```
 
-Los tests (`pytest tests/ -v`, 59 tests) y los scripts de backtest
+Los tests (`pytest tests/ -v`, 61 tests) y los scripts de backtest
 (`scripts/backtest_from_csv.py`, `scripts/list_signals.py`) corren en
-cualquier entorno con las dependencias instaladas, no requieren MT5.
+cualquier entorno con las dependencias instaladas, no requieren MT5. Lo
+mismo `scripts/summarize_bot_log.py` (24/09/2026) - resume `logs/bot.log`
+(actividad por símbolo, arranques, posibles caídas) sin tener que leerlo a
+mano, ver README ("Diagnosticar logs/bot.log").

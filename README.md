@@ -185,6 +185,22 @@ python -m scripts.backtest_from_csv data/xauusd_h1.csv XAUUSD \
     --account-balance=650 --risk-per-trade-pct=2.0
 ```
 
+## Diagnosticar `logs/bot.log`
+
+`scripts/summarize_bot_log.py` (24/09/2026) resume el log del bot sin tener
+que leerlo linea por linea: agrupa la actividad por símbolo (señales,
+órdenes, bloqueos por gestión de riesgo agrupados por motivo), detecta
+arranques del bot y huecos sin actividad (posibles caídas). Corre en
+cualquier entorno, no requiere MT5:
+
+```bash
+python -m scripts.summarize_bot_log logs/bot.log
+```
+
+Un símbolo sin ninguna línea en el log **no es evidencia de falla** - el
+bot solo escribe algo cuando pasa algo (señal, bloqueo, error, orden), no
+en cada vuelta del loop que no encuentra nada (ver `src/bot.py::iterate`).
+
 ## Puesta en marcha (cuenta real, 14/09/2026)
 
 El bot **no corre en este repositorio remoto** — necesita el terminal
