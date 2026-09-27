@@ -894,21 +894,76 @@ correctamente - no es el resultado que responde la pregunta del usuario
 una prueba de que el mecanismo está bien armado antes de correrlo con los
 datos que sí importan.
 
-**Pendiente**: el usuario tiene que exportar `XAUUSDm` H1 real desde su
-MT5 (mismo procedimiento que para `XAGUSDm` - `Symbols → Bars → XAUUSDm →
-H1 → rango de fechas amplio → Export`), cubriendo la mayor cantidad de
-historia posible (6 meses a 1 año, para acercarse a las 20-30 reaperturas
-que pide el protocolo). Con ese CSV real, correr:
-```
-python -m scripts.backtest_weekly_gap data/xauusd_h1_full.csv --tp-r-multiple=1.0
-python -m scripts.backtest_weekly_gap data/xauusd_h1_full.csv --tp-r-multiple=1.5
-```
-y comparar profit factor / consistencia entre mitades de ambas variantes
-antes de decidir si se activa - **no se activa en cuenta real sin que el
-profit factor supere 1.5 en ambas mitades**, mismo criterio que se aplicó
-en todas las demás evaluaciones de este documento. No hay ningún flag de
-producción todavía porque ni siquiera se corrió el backtest real - no tiene
-sentido dejar código de activación para algo que no se validó.
+**ACTUALIZACIÓN 27/09/2026 - datos reales recibidos y validados.** El
+usuario exportó `XAUUSDm` H1 real desde su MT5 (21 meses, 2025-01-01 a
+2026-09-25, 10.266 velas) - a diferencia de Twelve Data, tiene huecos de
+horario genuinos en los cierres de fin de semana.
+
+**Resultado principal** (`--tp-r-multiple=1.0 --min-range-atr-mult=1.0`,
+la configuración por defecto del script):
+
+| Variante | Trades | Win rate | Profit factor | 1ra mitad | 2da mitad |
+|---|---|---|---|---|---|
+| **TP 1x el riesgo** | 55 | 65.5% | **1.89** | PF 2.00 (27) | PF 1.80 (28) |
+| TP 1.5x el riesgo | 55 | 52.7% | 1.67 | PF 1.88 (27) | PF 1.50 (28, límite) |
+| Sin filtro de rango (control) | 91 | 58.2% | 1.39 | — | — |
+
+**TP 1x es la variante más sólida y la que se acepta como referencia** -
+cumple PF > 1.5 en las dos mitades, consistente ante distintos períodos de
+ATR de referencia (50/100/200 velas, PF entre 1.79 y 1.89 en los tres
+casos). Sacar el filtro de rango mínimo (tomar todas las reaperturas sin
+filtrar) hace caer el PF a 1.39 - confirma que el filtro que pidió el
+usuario ("descartar aperturas chatas") es lo que sostiene el resultado, no
+es cosmético. Es el resultado con profit factor más alto y más consistente
+de todo este documento (por encima de RSI 35/65 en BTC).
+
+**Los 3 puntos de ejecución pendientes de la propuesta original**:
+
+1. **¿Exness permite OCO?** No es una pregunta de permiso del broker -
+   MetaTrader 5 no tiene un tipo de orden "OCO" nativo en ningún broker (los
+   tipos base son Buy/Sell Stop/Limit). El comportamiento OCO siempre se
+   logra con un programa externo (EA o, en este caso, el propio bot en
+   Python) que vigila las dos pendientes y cancela la que no se activó -
+   es el mismo patrón que ya usa el bot con `mt5.order_send`, no requiere
+   nada especial de Exness.
+2. **Spread en el momento de reapertura**: comparado a nivel de vela H1
+   (columna `<SPREAD>` del export de MT5), el spread promedio en las 92
+   velas de reapertura (198.5 puntos) es prácticamente igual al spread
+   promedio normal (197.0 puntos) - no hay ensanchamiento sistemático
+   grande a ese nivel de agregación. Salvedad importante: esto es un
+   promedio por vela completa (probablemente muestreado al cierre), no
+   necesariamente el pico de los primeros segundos/minutos de la
+   reapertura, que es cuando más importa - recomendable confirmarlo
+   observando en vivo un domingo a la noche antes de confiar en esto al
+   100%.
+3. **Traducción a dólares reales vía `RiskManager` (balance real $715.24,
+   riesgo 2%, `pip_size=0.01`/`pip_value_per_lot=1.0` de Oro) - el hallazgo
+   más importante de los tres**: el filtro de capital de la sección 3.2
+   **bloquea 43 de las 55 señales (78%)** - el SL de este sistema (extremo
+   opuesto de toda la vela de reapertura) suele ser bastante ancho
+   (11-120+ puntos), y con este capital Oro solo admite SL ≤ ~13-15 puntos
+   al lote mínimo. **Solo quedan 12 operaciones ejecutables en cuenta
+   real**, con PF 1.09 - muestra demasiado chica para concluir nada en
+   ningún sentido. Es el mismo cuello de botella estructural que ya tiene
+   Oro en la Metodología v2 normal (sección 3.2) - no es una falla del
+   concepto nuevo, es la misma protección de capital de siempre.
+
+**Conclusión**: el concepto tiene una ventaja estadística real y robusta
+(PF 1.89 en R, el número más alto y consistente de todo este proyecto),
+pero con el capital actual solo es ejecutable en la práctica ~1 de cada 4-5
+señales - igual que el resto de Oro. **No se activa todavía** en cuenta
+real (la muestra ejecutable de 12 trades no alcanza para decidir nada), y
+debería mejorar solo con el crecimiento del capital, sin tocar código - se
+recalcula solo, igual que el resto del sistema.
+
+**Sin flag de producción** todavía: falta resolver la mecánica de
+colocar/vigilar/cancelar las dos pendientes en `MT5Client` (no existe hoy,
+el bot solo manda mercado en vela cerrada - decisión de arquitectura del
+14/09) antes de poder activar esto en vivo, aunque el concepto ya esté
+validado estadísticamente. Si en el futuro se retoma: (a) construir esa
+gestión de órdenes pendientes en `MT5Client`, (b) revalidar con datos más
+recientes antes de ir a producción, (c) empezar en `DRY_RUN=true` como con
+cualquier despliegue nuevo a cuenta real.
 
 ## Próximos pasos pendientes
 
@@ -970,15 +1025,19 @@ sentido dejar código de activación para algo que no se validó.
     analizadas, más la diferencia de fondo de tipo de orden (Buy Limit
     manual vs. mercado en vela cerrada del bot). No se cambió ningún
     parámetro de la estrategia.
-11. Straddle de reapertura semanal (Oro) - código listo y testeado
-    (`src/weekly_gap.py`, `scripts/backtest_weekly_gap.py`), pero
-    **bloqueado por datos**: Twelve Data rellena el cierre de mercado de
-    XAU/USD con un precio congelado en vez de un hueco real, así que
-    `data/xauusd_h1_raw.csv` no sirve para esta evaluación en particular.
-    Falta que el usuario exporte `XAUUSDm` H1 real desde su MT5 (mismo
-    procedimiento que para `XAGUSDm`) - ver "Evaluación del straddle de
-    reapertura semanal" más arriba para los comandos exactos a correr en
-    cuanto llegue el CSV.
+11. Straddle de reapertura semanal (Oro) - **validado estadísticamente el
+    27/09/2026** (PF 1.89 en R, TP 1x, consistente en mitades y ante
+    distintos parámetros - el resultado más fuerte de todo este proyecto),
+    pero **bloqueado en la práctica por el filtro de capital** (78% de las
+    señales no ejecutables con el capital actual, igual que el resto de
+    Oro) y sin flag de producción (falta construir gestión de órdenes
+    pendientes en `MT5Client`, que hoy no existe). Ver "Evaluación del
+    straddle de reapertura semanal" más arriba para el detalle completo,
+    incluida la verificación de spread en la reapertura y la aclaración
+    sobre OCO (no depende de Exness, es mecánica de `MT5Client`). No
+    revisitar activarlo sin (a) que el capital crezca lo suficiente para
+    que más señales entren en el 2% de riesgo, y (b) construir esa gestión
+    de órdenes pendientes.
 
 ## Cómo correr cosas
 
