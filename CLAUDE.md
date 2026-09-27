@@ -942,19 +942,37 @@ de todo este documento (por encima de RSI 35/65 en BTC).
    **bloquea 43 de las 55 señales (78%)** - el SL de este sistema (extremo
    opuesto de toda la vela de reapertura) suele ser bastante ancho
    (11-120+ puntos), y con este capital Oro solo admite SL ≤ ~13-15 puntos
-   al lote mínimo. **Solo quedan 12 operaciones ejecutables en cuenta
-   real**, con PF 1.09 - muestra demasiado chica para concluir nada en
-   ningún sentido. Es el mismo cuello de botella estructural que ya tiene
+   al lote mínimo. Es el mismo cuello de botella estructural que ya tiene
    Oro en la Metodología v2 normal (sección 3.2) - no es una falla del
    concepto nuevo, es la misma protección de capital de siempre.
 
+**Aclaración importante sobre qué muestra respalda cada número (el usuario
+preguntó esto explícitamente el 27/09/2026, antes de dar la evaluación por
+cerrada)**: el **PF 1.89 es sobre las 55 señales que pasan el filtro de
+rango - la muestra histórica completa de setups válidos, ANTES del filtro
+de capital** - ese es el número que importa para juzgar la calidad de la
+señal en sí. El filtro de capital determina, aparte, cuántas de esas 55
+serían ejecutables *hoy* con el capital actual: **solo 12**, con PF 1.09.
+Split de mitades sobre esas 12 (pedido explícitamente, mismo estándar que
+siempre): 1ra mitad (6 trades) PF 2.18, 2da mitad (6 trades) **PF 0.58** -
+se da vuelta por completo, confirma que n=12 es ruido puro, no dice nada en
+ningún sentido. Dato adicional: las 12 ejecutables quedan **todas
+concentradas entre enero y septiembre de 2025** (ninguna en el último año) -
+a medida que Oro subió de ~$2.600 a ~$4.800 durante el período, el rango
+típico de la vela de reapertura (y por lo tanto el SL de esta estrategia)
+creció en puntos absolutos, haciendo cada vez más difícil entrar dentro del
+2% de riesgo al lote mínimo. El subconjunto de 12 no es solo chico, también
+está sesgado hacia el tramo de precio ya superado - un motivo más para no
+darle ningún peso a ese 1.09.
+
 **Conclusión**: el concepto tiene una ventaja estadística real y robusta
-(PF 1.89 en R, el número más alto y consistente de todo este proyecto),
-pero con el capital actual solo es ejecutable en la práctica ~1 de cada 4-5
-señales - igual que el resto de Oro. **No se activa todavía** en cuenta
-real (la muestra ejecutable de 12 trades no alcanza para decidir nada), y
-debería mejorar solo con el crecimiento del capital, sin tocar código - se
-recalcula solo, igual que el resto del sistema.
+(PF 1.89 sobre 55 señales, el número más alto y consistente de todo este
+proyecto - muestra sólida, no la de 12). Lo que está bloqueado es la
+*ejecución* con el capital actual, no la validez del hallazgo. **No se
+activa todavía** en cuenta real (falta la mecánica de órdenes pendientes,
+punto de abajo), y la fracción ejecutable debería crecer sola con el
+capital, sin tocar código - se recalcula solo, igual que el resto del
+sistema.
 
 **Sin flag de producción** todavía: falta resolver la mecánica de
 colocar/vigilar/cancelar las dos pendientes en `MT5Client` (no existe hoy,
