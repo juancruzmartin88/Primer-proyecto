@@ -837,6 +837,79 @@ estrictez geométrica de la vela de rechazo en el otro), más una diferencia
 de fondo en el tipo de orden que aplica siempre. Queda documentado acá para
 no tener que re-investigar si vuelve a surgir la misma pregunta.
 
+## Evaluación del straddle de reapertura semanal (27/09/2026) — código listo, esperando datos reales
+
+Idea propuesta por el usuario (consultada en paralelo con otro chat),
+sistema SEPARADO de la Metodología v2, solo para XAUUSD: en la primera vela
+H1 tras la reapertura semanal del mercado, colocar Buy Stop sobre el máximo
+de esa vela y Sell Stop bajo el mínimo (straddle/OCO - la que se dispara
+primero cancela la otra), SL en el extremo opuesto de la misma vela, TP a
+1x o 1.5x el riesgo (no un nivel estructural), con un filtro de rango
+mínimo (la vela de reapertura tiene que superar un ATR de referencia, para
+descartar reaperturas sin información real). Protocolo de validación
+pedido explícitamente: 20-30 reaperturas históricas de XAUUSD, profit
+factor > 1.5, y split de la muestra en dos mitades para chequear
+consistencia - mismo estándar que se usó para aceptar RSI 35/65 y rechazar
+M30/Plata.
+
+**Implementado y testeado** (lógica pura, sin depender de datos reales
+todavía):
+- `src/weekly_gap.py`: `find_reopen_indices` (detecta velas que arrancan
+  tras un hueco de horario real ≥N horas - la reapertura semanal genuina),
+  `simulate_straddle` (simula las dos pendientes, cuál se activa primero,
+  SL/TP en múltiplos de riesgo R - no en dólares, porque el mecanismo de
+  dos órdenes pendientes simultáneas no encaja en `src/backtester.py`, que
+  asume una sola estrategia por vela), `summarize` (profit factor y win
+  rate en R). 8 tests en `tests/test_weekly_gap.py`, con velas sintéticas -
+  cubren detección de huecos, filtro de rango, resolución BUY/SELL,
+  ambigüedad de "las dos pendientes se tocan en la misma vela" (se resuelve
+  aproximando por cuál nivel está más cerca del open de esa vela), y "no se
+  resuelve dentro de la ventana".
+- `scripts/backtest_weekly_gap.py`: corre `weekly_gap.py` sobre un CSV
+  histórico real, con el mismo split de mitades que pide el protocolo.
+  Acepta el formato de export de MT5 (`Symbols → Bars → Export`) o un CSV
+  estándar con columna de tiempo única.
+
+**BLOQUEADO por datos, no por código**: `find_reopen_indices` necesita
+huecos de horario GENUINOS entre el cierre del viernes y la reapertura -
+verificado el 27/09/2026 que **Twelve Data rellena el cierre de mercado de
+XAU/USD con un precio casi congelado** (ejemplo real: sábado 08:00 a
+domingo 04:00, precio moviéndose menos de 0.3 puntos en >30hs, sin ningún
+hueco de horario en los timestamps) en vez de dejar el hueco real o
+reflejar el salto genuino de reapertura. Correr esta estrategia sobre ese
+dataset daría un falso negativo (o un resultado sin sentido) - la premisa
+entera depende de medir el gap real, que ese feed no tiene. `data/xauusd_h1_raw.csv`
+(el CSV de Twelve Data ya usado para todos los demás backtests de este
+proyecto) **no sirve para esta evaluación en particular**, aunque sí sigue
+sirviendo para todo lo demás (Metodología v2, ETH, Breakout, M30).
+
+El pipeline completo se validó igual, de punta a punta, corriendo
+`scripts/backtest_weekly_gap.py` sobre el export real de MT5 de
+`XAGUSDm` que ya se había pedido para la evaluación de Plata (ese sí tiene
+huecos de horario reales) - detectó 92 reaperturas en ~20 meses, 43
+pasaron el filtro de rango, con timestamps de reapertura sensatos
+(22-23hs UTC, domingo a la noche). Esto confirma que el código funciona
+correctamente - no es el resultado que responde la pregunta del usuario
+(era Plata, no Oro, y el usuario no pidió evaluar Plata para esto), solo
+una prueba de que el mecanismo está bien armado antes de correrlo con los
+datos que sí importan.
+
+**Pendiente**: el usuario tiene que exportar `XAUUSDm` H1 real desde su
+MT5 (mismo procedimiento que para `XAGUSDm` - `Symbols → Bars → XAUUSDm →
+H1 → rango de fechas amplio → Export`), cubriendo la mayor cantidad de
+historia posible (6 meses a 1 año, para acercarse a las 20-30 reaperturas
+que pide el protocolo). Con ese CSV real, correr:
+```
+python -m scripts.backtest_weekly_gap data/xauusd_h1_full.csv --tp-r-multiple=1.0
+python -m scripts.backtest_weekly_gap data/xauusd_h1_full.csv --tp-r-multiple=1.5
+```
+y comparar profit factor / consistencia entre mitades de ambas variantes
+antes de decidir si se activa - **no se activa en cuenta real sin que el
+profit factor supere 1.5 en ambas mitades**, mismo criterio que se aplicó
+en todas las demás evaluaciones de este documento. No hay ningún flag de
+producción todavía porque ni siquiera se corrió el backtest real - no tiene
+sentido dejar código de activación para algo que no se validó.
+
 ## Próximos pasos pendientes
 
 1. Juntar operaciones reales de la cuenta real con la Metodología v2 (RSI
@@ -897,6 +970,15 @@ no tener que re-investigar si vuelve a surgir la misma pregunta.
     analizadas, más la diferencia de fondo de tipo de orden (Buy Limit
     manual vs. mercado en vela cerrada del bot). No se cambió ningún
     parámetro de la estrategia.
+11. Straddle de reapertura semanal (Oro) - código listo y testeado
+    (`src/weekly_gap.py`, `scripts/backtest_weekly_gap.py`), pero
+    **bloqueado por datos**: Twelve Data rellena el cierre de mercado de
+    XAU/USD con un precio congelado en vez de un hueco real, así que
+    `data/xauusd_h1_raw.csv` no sirve para esta evaluación en particular.
+    Falta que el usuario exporte `XAUUSDm` H1 real desde su MT5 (mismo
+    procedimiento que para `XAGUSDm`) - ver "Evaluación del straddle de
+    reapertura semanal" más arriba para los comandos exactos a correr en
+    cuanto llegue el CSV.
 
 ## Cómo correr cosas
 
