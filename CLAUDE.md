@@ -1290,6 +1290,73 @@ señal (piso 14.27) sigue sin flag de producción, pendiente de que el
 capital llegue a ese rango antes de volver a evaluarlo con datos más
 recientes.
 
+## Metodología v2 "pura" para BTC (28/09/2026) — RECHAZADA
+
+Surge del diagnóstico del 24/09/2026 sobre Oro ("Diferencia entre
+operaciones manuales y detección del bot en Oro", más arriba): el bot en
+producción exige dos requisitos que no surgen de la sección 4 del sistema
+- (1) una vela de confirmación adicional después de la vela de rechazo, y
+(2) un SL calculado sobre el mínimo/máximo de una ventana de 8 velas de
+pullback, en vez del punto técnico más ajustado (extremo de la propia vela
+de rechazo). La sospecha era que esto explica el silencio de BTC (2
+semanas sin señales) - se pidió cuantificarlo formalmente en vez de
+asumirlo, ya que en Oro no se había tocado código en ese momento.
+
+Implementado en `src/strategies/pure_v2.py` (`PureV2Strategy`, hereda de
+`StructuralPullbackStrategy` y solo sobreescribe `_analyze` - mismo RSI
+35/65, mismo test geométrico de vela de rechazo, mismo nivel estructural,
+mismo volumen y TP; cambia unicamente el timing de entrada -sin esperar
+confirmación, actúa sobre la vela de rechazo misma- y el cálculo del SL
+-extremo de esa única vela, no la ventana de 8-) - 4 tests en
+`tests/test_pure_v2.py`, verificados numéricamente.
+`scripts/backtest_pure_v2.py` corre ambas versiones sobre BTC, mismo
+período de 7 meses de referencia, capital real $715.24.
+
+**Vista realista (capital real, filtro de riesgo activo):**
+
+| | Bot actual | v2 pura |
+|---|---|---|
+| Señales / Trades | 118 / 60 | 209 / **126** |
+| Win rate | 46.7% | 31.7% |
+| Profit factor | **1.71** | **0.91 (perdedora)** |
+| Drawdown | 7.9% | **45.9%** |
+| PF 1ra mitad | 1.40 | 0.95 |
+| PF 2da mitad | 1.98 | 0.85 |
+
+**Vista exploratoria (lote fijo, aísla calidad de señal):**
+
+| | Bot actual | v2 pura |
+|---|---|---|
+| Trades | 45 | 127 |
+| Win rate | 44.4% | 31.5% |
+| Profit factor | 1.93 | **0.90** |
+| Drawdown | 24.7% | **79.4%** |
+
+Sacar la vela de confirmación y ajustar el SL a la vela de rechazo sola
+**sí multiplica la frecuencia** (2-3x más señales/trades, confirmando esa
+parte de la sospecha), pero **destruye la calidad**: profit factor por
+debajo de 1.0 (sistema perdedor) en las dos vistas, consistente en las dos
+mitades del período (pierde en ambas, no es una racha puntual), y
+drawdown 4-6x mayor. Falla los tres criterios de aprobación (PF>1.5, sin
+regresión, consistencia entre mitades) por un margen amplio, no un caso
+límite.
+
+**Lectura**: las dos "estrictezas" del bot, lejos de ser fricciones sin
+sentido, sostienen el profit factor - la vela de confirmación filtra
+patrones de rechazo que no continúan en la dirección esperada, y el SL más
+ancho (ventana de 8 velas en vez de una sola) le da a la operación margen
+contra la volatilidad normal antes de llegar a TP. Sin ellas, muchas
+operaciones que habrían cerrado en TP quedan barridas por SL antes.
+
+**Decisión: NO se implementa.** El silencio de BTC en el período reciente
+(2 semanas sin señales, motivo original de la sospecha) **no se explica
+por este criterio** - hay que buscar la causa en otro lado si se repite
+(régimen de mercado sin setups válidos, algo similar al diagnóstico de
+Oro). Sin flag de producción - no hace falta código nuevo para
+reconsiderarlo, `PureV2Strategy` ya es reusable tal cual si en el futuro
+se quiere probar una variante intermedia (por ejemplo, sacar solo uno de
+los dos requisitos en vez de los dos a la vez).
+
 ## Próximos pasos pendientes
 
 1. Juntar operaciones reales de la cuenta real con la Metodología v2 (RSI
@@ -1404,6 +1471,17 @@ recientes.
     producción - no hace falta código nuevo para reconsiderarlo, solo que
     el capital llegue a ese rango y volver a correr el backtest con datos
     más recientes.
+16. Metodología v2 "pura" para BTC (sin vela de confirmación extra, SL en
+    la vela de rechazo sola) - **rechazada (28/09/2026)**. Ver "Metodología
+    v2 'pura' para BTC" más arriba. Multiplica la frecuencia (2-3x más
+    trades) pero el profit factor cae por debajo de 1.0 en las dos vistas
+    (realista y exploratoria) y en las dos mitades del período, con
+    drawdown 4-6x mayor. La vela de confirmación y el SL por ventana de 8
+    velas no son fricciones sin sentido - sostienen el profit factor. El
+    silencio de BTC que motivó la pregunta no se explica por este criterio
+    de entrada. Sin flag de producción, `PureV2Strategy`
+    (`src/strategies/pure_v2.py`) queda reusable tal cual si se quiere
+    probar una variante intermedia (sacar solo uno de los dos requisitos).
 
 ## Cómo correr cosas
 
