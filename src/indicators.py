@@ -11,6 +11,10 @@ import numpy as np
 import pandas as pd
 
 
+def sma(close: pd.Series, period: int = 50) -> pd.Series:
+    return close.rolling(period, min_periods=period).mean()
+
+
 def rsi(close: pd.Series, period: int = 14) -> pd.Series:
     delta = close.diff()
     gains = delta.clip(lower=0)

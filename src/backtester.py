@@ -54,6 +54,27 @@ class BacktestResult:
             return float("inf") if gross_profit > 0 else 0.0
         return gross_profit / gross_loss
 
+    @property
+    def worst_losing_streak(self) -> dict:
+        """Racha mas larga de operaciones perdedoras seguidas (28/09/2026).
+
+        "Perdedora" es pnl < 0 (un cierre en 0 exacto no cuenta ni suma ni
+        corta la racha). Devuelve la racha con mayor perdida acumulada en
+        dolares, no necesariamente la de mas operaciones - una racha de 3
+        perdidas grandes puede pesar mas que una de 5 chicas.
+        """
+        best = {"count": 0, "amount": 0.0}
+        current_count, current_amount = 0, 0.0
+        for t in self.trades:
+            if t["pnl"] < 0:
+                current_count += 1
+                current_amount += t["pnl"]
+                if current_amount < best["amount"]:
+                    best = {"count": current_count, "amount": current_amount}
+            elif t["pnl"] > 0:
+                current_count, current_amount = 0, 0.0
+        return best
+
     def summary(self) -> str:
         return (
             f"Trades: {len(self.trades)} | Win rate: {self.win_rate:.1%} | "
