@@ -983,6 +983,118 @@ gestión de órdenes pendientes en `MT5Client`, (b) revalidar con datos más
 recientes antes de ir a producción, (c) empezar en `DRY_RUN=true` como con
 cualquier despliegue nuevo a cuenta real.
 
+## Filtro de tendencia 4H para Oro (28/09/2026) — RECHAZADO (las 3 variantes)
+
+El usuario pidió evaluar si descartar señales de 1H de la Metodología v2
+que van en contra de la tendencia mayor de 4H mejora el backtest de Oro,
+probando 3 formas de definirla: (a) precio vs SMA50 en 4H, (b) RSI(14) 4H
+vs 50, (c) estructura de máximos/mínimos fractales en las últimas 20 velas
+4H. Mismo período de 7 meses de referencia, RSI 35/65 vigente.
+
+Implementado en `src/trend_filter.py` (`resample_to_4h`, `trend_by_sma`,
+`trend_by_rsi`, `trend_by_structure`, `map_trend_to_h1` - sin lookahead, el
+valor de una vela 4H solo está disponible desde el momento en que esa vela
+ya cerró - y `TrendFilteredStrategy`, que envuelve
+`StructuralPullbackStrategy` sin tocarla, descartando a HOLD cualquier
+señal en contra de la tendencia vigente; una tendencia neutral no bloquea
+nada). 11 tests en `tests/test_trend_filter.py`.
+`scripts/backtest_trend_filter.py` (modo realista, con filtro de capital)
+y `scripts/backtest_trend_filter_exploratory.py` (lote fijo, aísla la
+calidad de señal del problema de capital) corren las 3 variantes contra el
+benchmark.
+
+**Vista realista** (capital real $715.24, filtro de capital sección 3.2
+activo):
+
+| Variante | Señales generadas | Trades ejecutables |
+|---|---|---|
+| Sin filtro (benchmark) | 77 | 2 |
+| SMA50 4H | 18 | **1** |
+| RSI 4H | 10 | **1** |
+| Estructura 4H | 58 | **1** |
+
+El filtro de capital ya deja solo 2 trades ejecutables sin ningún filtro
+de tendencia - cualquier filtro adicional solo puede mantener o reducir
+esa muestra, nunca aumentarla. Con n=1 en las 3 variantes es
+matemáticamente imposible aplicar el criterio de aprobación (PF>1.5 +
+consistencia entre mitades, que necesita al menos 2 trades para partir en
+dos) - no se puede validar ni rechazar por falta de muestra.
+
+**Vista exploratoria** (lote fijo 1.0, sin filtro de capital - aísla la
+calidad de la señal en sí):
+
+| Variante | Trades | Win rate | PF total | PF 1ra mitad | **PF 2da mitad** |
+|---|---|---|---|---|---|
+| Sin filtro (benchmark) | 42 | 33.3% | 1.31 | 1.99 | **0.59** |
+| SMA50 4H | 14 | 50.0% | 2.44 | 8.88 | **0.30** |
+| RSI 4H | 9 | 55.6% | 2.90 | 7.99 | **0.78** |
+| Estructura 4H | 34 | 38.2% | 1.81 | 3.25 | **0.69** |
+
+Acá sí hay muestra suficiente para concluir, y la conclusión es negativa
+por un motivo más contundente que la falta de datos: **las 4 variantes
+(incluido el benchmark sin filtro) tienen la segunda mitad del período
+perdedora** (PF entre 0.30 y 0.78). Los PF totales de SMA50 (2.44) y RSI
+(2.90) parecen muy buenos, pero están inflados por una racha fuerte en la
+primera mitad que no se repite en la segunda - el patrón clásico de
+inconsistencia temporal que el criterio de "split de mitades" del propio
+usuario está diseñado para detectar. Ninguna de las 3 variantes mejora esa
+inconsistencia respecto al benchmark sin filtro; SMA50 y estructura, de
+hecho, la empeoran (2da mitad más perdedora que el benchmark).
+
+**Decisión: NO se activa ninguna de las 3 variantes.** Falla en las dos
+vistas por motivos distintos: en la realista, no hay muestra suficiente
+para decidir (n=1, cuello de botella de capital); en la exploratoria, sí
+hay muestra, y falla la consistencia entre mitades en las 4 configuraciones
+probadas (incluido el propio benchmark actual). Esto último es un hallazgo
+más general que excede al filtro de tendencia: la calidad de señal de Oro
+en este período completo, con RSI 35/65, ya es inconsistente entre mitades
+incluso sin ningún filtro nuevo (PF 1.99 vs 0.59) - algo que no se había
+medido explícitamente antes en modo exploratorio con el umbral vigente
+(los backtests anteriores de Oro con RSI 35/65 solo tenían 2 trades reales,
+sin muestra para split de mitades). Sin flag de producción - no hace falta
+código nuevo para reconsiderarlo, `TrendFilteredStrategy` ya es reusable
+tal cual con la clase existente. No revisitar sin antes entender por qué
+la señal de Oro en sí es inconsistente entre mitades del período, algo más
+profundo que el filtro de tendencia puntual.
+
+## Techo de riesgo 3% para Oro (28/09/2026) — RECHAZADO
+
+El usuario pidió recalcular qué señales de Oro se hubieran podido ejecutar
+(lote mínimo 0.01) si el techo de riesgo objetivo subiera de 2% a 3% del
+capital, manteniendo todo lo demás igual (mismo período de 7 meses, mismo
+capital real $715.24) - reportando trades adicionales desbloqueados,
+PF/WR/drawdown, y la peor racha de pérdidas consecutivas en dólares.
+
+Se agregó `BacktestResult.worst_losing_streak` a `src/backtester.py` (racha
+de pérdidas consecutivas con mayor pérdida acumulada en dólares, no
+necesariamente la de más operaciones - 4 tests nuevos en
+`tests/test_worst_losing_streak.py`) y `scripts/backtest_risk_ceiling.py`
+para la comparación.
+
+**Resultado**:
+
+| | Riesgo 2% (baseline) | Riesgo 3% |
+|---|---|---|
+| Trades | 2 | 8 (+6 desbloqueadas) |
+| Win rate | 50.0% | **12.5%** |
+| Profit factor | 2.36 | **0.20** |
+| Drawdown | 1.7% | **19.2%** |
+| Peor racha de pérdidas | 1 operación, -$11.87 | **7 operaciones seguidas, -$137.56** |
+
+Split de mitades sobre las 8 (pedido, aunque la muestra ya es chica): 1ra
+mitad (4 trades) PF 0.00 (perdedora total), 2da mitad (4 trades) PF 0.46 -
+mala en las dos, sin ambigüedad. Con n=8 la muestra es chica, pero 7 de 8
+operaciones perdedoras es un resultado demasiado lopsided para necesitar
+más datos - las 6 señales adicionales que destraba el techo más alto (las
+de SL más ancho, que antes quedaban bloqueadas al lote mínimo) resultan
+ser, en esta ventana, justamente las de peor calidad.
+
+**Decisión: NO se activa.** Subir el techo de riesgo no mejora nada, y
+en este backtest empeora todo a la vez - drawdown, profit factor y racha
+de pérdidas. Sin flag de producción - no hace falta código nuevo (el
+techo de riesgo ya es el parámetro `RISK_PER_TRADE_PCT` existente), así
+que no hay nada que "activar", solo la recomendación de no subirlo.
+
 ## Próximos pasos pendientes
 
 1. Juntar operaciones reales de la cuenta real con la Metodología v2 (RSI
@@ -1056,6 +1168,22 @@ cualquier despliegue nuevo a cuenta real.
     revisitar activarlo sin (a) que el capital crezca lo suficiente para
     que más señales entren en el 2% de riesgo, y (b) construir esa gestión
     de órdenes pendientes.
+12. Filtro de tendencia 4H para Oro (SMA50/RSI/estructura) - **rechazado
+    (28/09/2026)**, las 3 variantes. Ver "Filtro de tendencia 4H para Oro"
+    más arriba. En modo realista la muestra es insuficiente (n=1 en las 3,
+    mismo cuello de botella de capital); en modo exploratorio (sí hay
+    muestra) las 4 configuraciones - incluido el benchmark sin filtro -
+    tienen la segunda mitad del período perdedora, ninguna mejora esa
+    inconsistencia. Hallazgo más amplio: la señal de Oro con RSI 35/65 ya
+    es inconsistente entre mitades del período de referencia, más allá de
+    este filtro puntual - no revisitar sin primero entender esa
+    inconsistencia de fondo.
+13. Techo de riesgo 3% para Oro - **rechazado (28/09/2026)**. Ver "Techo
+    de riesgo 3% para Oro" más arriba. Las 6 señales adicionales que
+    destraba (SL más ancho) son las de peor calidad en la ventana: PF 0.20,
+    7 de 8 operaciones perdedoras, peor racha -$137.56. No hay nada que
+    "activar" - `RISK_PER_TRADE_PCT` sigue en 2.0, es la recomendación de
+    no subirlo, no una feature pendiente.
 
 ## Cómo correr cosas
 
