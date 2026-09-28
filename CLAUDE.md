@@ -1176,6 +1176,80 @@ por ejemplo, exigir un piso de ATR antes de operar la reversión, dado que
 la tasa de señales falsas parece estar ligada a la compresión de
 volatilidad, no a la dirección del precio.
 
+## Filtro de piso de volatilidad (ATR) para Oro (28/09/2026) — señal validada, bloqueado por conflicto directo con el filtro de capital
+
+Hipótesis surgida del diagnóstico anterior (sección de arriba): filtrar por
+**régimen de volatilidad** en vez de por dirección — descartar una señal de
+reversión (RSI 35/65 + vela de rechazo) si el ATR(14) en 1H al momento de la
+señal está por debajo de un piso. Implementado en `src/volatility_filter.py`
+(`VolatilityFilteredStrategy`, envuelve `StructuralPullbackStrategy` sin
+tocarla, mismo patrón que `TrendFilteredStrategy`) - 5 tests en
+`tests/test_volatility_filter.py`. `scripts/backtest_volatility_filter.py`
+corre el benchmark vs varios pisos de ATR, vista realista y exploratoria,
+con split de mitades - mismo período de 7 meses de referencia, capital real
+$715.24.
+
+**Piso inicial probado: 14.27** (ATR promedio del período completo). Después
+se barrieron pisos más bajos (8, 10, 12) para buscar un punto intermedio.
+
+**Vista exploratoria (lote fijo, aísla calidad de señal):**
+
+| Piso ATR | Trades | Win rate | PF total | PF 1ra mitad | PF 2da mitad |
+|---|---|---|---|---|---|
+| Sin filtro (benchmark) | 42 | 33.3% | 1.31 | 1.99 | **0.59** |
+| ≥8.00 | 41 | 31.7% | 1.25 | 1.89 | 0.58 |
+| ≥10.00 | 38 | 34.2% | 1.32 | 1.95 | 0.63 |
+| ≥12.00 | 33 | 42.4% | 1.86 | 2.42 | 1.21 |
+| **≥14.27** | **24** | **50.0%** | **2.42** | **3.01** | **1.70** |
+
+Los pisos bajos (8/10) prácticamente no cambian nada frente al benchmark -
+la segunda mitad sigue perdedora. Recién a partir de ~12 empieza a mejorar
+de forma clara, y **solo el piso 14.27 (el promedio del período completo)
+cumple el criterio completo: profit factor, win rate Y consistencia entre
+mitades mejoran a la vez, con las dos mitades por encima de 1.5** (3.01 y
+1.70) - exactamente el resultado que predecía el diagnóstico: la señal de
+Oro no está rota, lo que generaba la inconsistencia era una mayor tasa de
+señales falsas en el régimen lateral/comprimido de la segunda mitad, y
+filtrar por volatilidad las saca sin sacrificar las reversiones genuinas.
+
+**Vista realista (capital real $715.24, filtro de capital sección 3.2
+activo) - acá aparece el problema de fondo:**
+
+| Piso ATR | Trades ejecutables | Resultado |
+|---|---|---|
+| Sin filtro (benchmark) | 2 | PF 2.36 |
+| ≥8.00 | 1 | perdedor (-$11.87) |
+| ≥10.00 | 1 | perdedor (-$11.87) |
+| ≥12.00 | 0 | — |
+| ≥14.27 | 0 | — |
+
+**Ningún piso de ATR mejora la vista realista - todos igualan o empeoran,
+y el piso que sí mejora la calidad de señal (14.27) la lleva a cero
+directamente.** La causa no es casualidad ni muestra chica: es un choque
+estructural entre los dos filtros. El filtro de capital de la sección 3.2
+solo deja pasar señales con SL técnico angosto al lote mínimo (baja
+volatilidad, casi por definición) - es exactamente el tipo de señal que el
+piso de ATR excluye. Pedirle a la vez "SL angosto" (capital) y "ATR alto"
+(volatilidad) sobre la misma señal es casi una contradicción con este
+capital: las señales de mejor calidad detectadas por el filtro de
+volatilidad son sistemáticamente las que el filtro de capital ya venía
+descartando por SL ancho.
+
+**Decisión: NO se activa.** A diferencia del resto de los hallazgos
+bloqueados solo por "falta de capital" (Oro en general, el straddle
+semanal), acá el bloqueo no se resuelve únicamente con que el capital
+crezca lo suficiente para el filtro de capital en sí - mientras el filtro
+de capital siga privilegiando SL angosto, el piso de volatilidad seguirá
+en conflicto directo con él. Sin flag de producción - no hace falta código
+nuevo para reconsiderarlo, `VolatilityFilteredStrategy` ya es reusable tal
+cual. Si en el futuro se quiere revisitar: hace falta que el capital crezca
+lo bastante como para que el filtro de capital deje de ser el cuello de
+botella dominante (dejando pasar señales con SL más ancho) - recién ahí el
+piso de volatilidad podría sumar en la práctica, no solo en el backtest
+exploratorio. Queda como el segundo hallazgo de calidad de señal genuino de
+este proyecto (junto con RSI 35/65 en BTC y el straddle semanal) que no se
+puede ejecutar hoy - documentado para no tener que redescubrirlo.
+
 ## Próximos pasos pendientes
 
 1. Juntar operaciones reales de la cuenta real con la Metodología v2 (RSI
@@ -1275,6 +1349,19 @@ volatilidad, no a la dirección del precio.
     sin sumar ninguna ganadora más. Sugerencia sin evaluar todavía para una
     futura iteración: filtro por régimen de volatilidad (piso de ATR) en
     vez de por dirección (lo que ya se probó y falló).
+15. Filtro de piso de volatilidad (ATR) para Oro - **señal validada,
+    bloqueado (28/09/2026)**. Ver "Filtro de piso de volatilidad (ATR) para
+    Oro" más arriba. En vista exploratoria confirma el diagnóstico: piso
+    14.27 mejora PF (1.31→2.42), win rate (33.3%→50.0%) y arregla la
+    inconsistencia entre mitades (0.59→1.70 en la 2da mitad) a la vez. Pero
+    en vista realista choca de frente con el filtro de capital de la
+    sección 3.2 (que privilegia SL angosto/baja volatilidad) - cualquier
+    piso que mejore la calidad de señal reduce la ejecución real a 0-1
+    trades. A diferencia del resto de los pendientes bloqueados por
+    capital, este no se resuelve solo con que el capital crezca lo
+    suficiente para el filtro de capital en general - hace falta que deje
+    de privilegiar SL angosto específicamente. Sin flag de producción, no
+    hace falta código nuevo para reconsiderarlo.
 
 ## Cómo correr cosas
 
