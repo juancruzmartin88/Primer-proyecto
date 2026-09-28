@@ -1536,16 +1536,24 @@ tal cual, solo falta más historial.
     (`src/strategies/pure_v2.py`) queda reusable tal cual si se quiere
     probar una variante intermedia (sacar solo uno de los dos requisitos).
 17. Metodología v2 en Oro 4H (primer paso hacia swing trading) - **muestra
-    insuficiente, sin decisión (28/09/2026)**. Ver "Metodología v2 en Oro
-    4H" más arriba. Solo 9 trades en vista exploratoria y 0 ejecutables en
-    vista realista sobre los mismos 7 meses de referencia (que en 4H dan
-    ~1.250 velas en vez de ~5.000) - ni para aceptar ni para rechazar.
+    insuficiente, PAUSADO hasta que crezca el capital (28/09/2026)**. Ver
+    "Metodología v2 en Oro 4H" más arriba. Solo 9 trades en vista
+    exploratoria y **0 ejecutables en vista realista** sobre los mismos 7
+    meses de referencia (que en 4H dan ~1.250 velas en vez de ~5.000).
     Split de mitades (PF 0.32 vs 3.05) es ruido de muestra chica, no
-    señal. Antes de retomar: extender el período de referencia (14-18
-    meses) para juntar al menos 25-30 trades ejecutables, pidiendo un
-    export más largo de MT5 si Twelve Data no alcanza (mismo patrón que
-    M30 y el straddle semanal). Sin flag de producción, no hace falta
-    código nuevo.
+    señal - técnicamente se podría conseguir más historial (14-18 meses)
+    para juntar una muestra mayor y volver a evaluar la calidad de la
+    señal en sí, pero el usuario decidió explícitamente pausarlo: aunque
+    la señal resultara buena, la ejecución real seguiría bloqueada por el
+    mismo filtro de capital de la sección 3.2 que ya bloquea el resto de
+    Oro (SL en 4H sistemáticamente más ancho que en 1H) - no tiene sentido
+    invertir en conseguir más datos históricos todavía si el resultado no
+    se podría operar en cuenta real de todas formas. Retomar cuando el
+    capital crezca lo suficiente como para que el filtro de capital deje
+    de ser el cuello de botella dominante en Oro en general (ver también
+    el techo de riesgo y el filtro de volatilidad, mismo patrón) - recién
+    ahí conseguir más historial en 4H y revalidar. Sin flag de producción,
+    no hace falta código nuevo.
 
 ## Cómo correr cosas
 
