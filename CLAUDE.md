@@ -1095,6 +1095,87 @@ de pérdidas. Sin flag de producción - no hace falta código nuevo (el
 techo de riesgo ya es el parámetro `RISK_PER_TRADE_PCT` existente), así
 que no hay nada que "activar", solo la recomendación de no subirlo.
 
+## Diagnóstico de la inconsistencia entre mitades de Oro (28/09/2026)
+
+El filtro de tendencia 4H (sección de arriba) reveló que la señal base de
+Oro (sin ningún filtro nuevo, RSI 35/65) ya es inconsistente entre mitades
+del período de referencia (PF 1.99 la primera, PF 0.59 la segunda). El
+usuario pidió investigar la causa de raíz en vez de seguir probando
+filtros puntuales - análisis directo sobre las 42 operaciones del backtest
+exploratorio (lote fijo, `data/xauusd_h1_raw.csv`), sin escribir código
+nuevo (no hace falta - es un análisis de datos, no una feature).
+
+**Hipótesis 1: ¿cambio de régimen de volatilidad? SÍ, pero al revés de lo
+esperable** - la volatilidad no subió en la segunda mitad, bajó:
+
+| | 1ra mitad (14/02-29/05) | 2da mitad (29/05-10/09) |
+|---|---|---|
+| ATR(14) promedio | 16.27 puntos | **12.28 puntos (-25%)** |
+| Efficiency Ratio (Kaufman) | 0.023 | **0.006** (4x más lateral) |
+| Cambio de precio neto | -9.6% | -2.2% |
+
+La segunda mitad es un régimen más lateral, comprimido y ruidoso en
+relación a lo poco que se movió - no una fase más volátil que "rompió" el
+sistema, como podría asumirse a priori.
+
+**Hipótesis 2: ¿operaciones ganadoras concentradas en pocos meses? NO** -
+es un quiebre de régimen sostenido de 4 meses consecutivos, no una racha
+mala aislada:
+
+| Mes | Trades | Ganadoras | PnL neto (lote fijo) |
+|---|---|---|---|
+| Feb-Abr (10 trades) | — | 6 | **+$62.217 (los 3 meses positivos)** |
+| May (transición) | 7 | 2 | +$2.089 |
+| Jun-Sep (25 trades) | — | 6 | **-$28.960 (los 4 meses negativos)** |
+
+Las velas de mayor rango del período (posibles shocks) se concentran casi
+todas entre el 3 y el 24 de marzo/2026, pero esas operaciones puntuales
+solo aportaron $3.053 de los $52.229 netos de la primera mitad - el shock
+de marzo NO es lo que explica la buena racha inicial, es más amplia y
+sostenida que eso.
+
+**El dato más revelador - motivo de salida por mitad:**
+
+| | 1ra mitad | 2da mitad |
+|---|---|---|
+| Trades | 16 | 26 |
+| Win rate | 43.8% | **26.9%** |
+| Salidas por TP | 7 | **7 (igual)** |
+| Salidas por SL | 9 | **19** |
+| Ganancia media / Pérdida media | $14,138 / -$5,193 (ratio 2.7:1) | $7,373 / -$3,605 (ratio 2.0:1) |
+
+La cantidad de reversiones genuinas que llegan a TP es **idéntica** en las
+dos mitades (7 y 7) - el sistema encuentra la misma cantidad de setups
+reales en ambos regímenes. La segunda mitad generó 10 operaciones
+adicionales que fueron directo a SL, sin sumar ninguna ganadora más - el
+régimen lateral no eliminó las señales buenas, generó señales falsas
+adicionales que el régimen volátil de la primera mitad no producía.
+
+**Hipótesis 3: ¿coincide con un evento macro/estructural conocido?**
+No se pudo confirmar desde este entorno (sin acceso a un calendario macro
+verificado en esta sesión) - el quiebre de régimen cae a fin de
+mayo/principios de junio de 2026. El patrón de los datos (fase de caída
+fuerte y volátil seguida de una fase lateral comprimida) es consistente
+con una digestión/consolidación posterior a un shock grande, pero es una
+lectura del patrón de precios, no una causa confirmada - si el usuario
+identifica un evento real de esa fecha, se podría cruzar.
+
+**Síntesis**: no es que "la señal de Oro sea buena, solo la bloquea el
+capital" - la señal cambió de calidad real a mitad del período de
+referencia, coincidiendo con el pasaje de un régimen volátil/direccional a
+uno lateral/comprimido. El motor de la asimetría (ganancias grandes que
+compensan pérdidas chicas) sigue funcionando igual en las dos mitades - lo
+que se rompe es la tasa de señales falsas, que casi se duplica en el
+régimen lateral sin sumar ganadoras nuevas.
+
+**Sin implementar nada** - esto era diagnóstico, pedido explícitamente sin
+activar nada. Sugerencia para una futura iteración (no evaluada todavía):
+en vez de filtrar por dirección (lo que ya se probó y falló, ver "Filtro
+de tendencia 4H"), explorar un filtro por **régimen de volatilidad** -
+por ejemplo, exigir un piso de ATR antes de operar la reversión, dado que
+la tasa de señales falsas parece estar ligada a la compresión de
+volatilidad, no a la dirección del precio.
+
 ## Próximos pasos pendientes
 
 1. Juntar operaciones reales de la cuenta real con la Metodología v2 (RSI
@@ -1184,6 +1265,16 @@ que no hay nada que "activar", solo la recomendación de no subirlo.
     7 de 8 operaciones perdedoras, peor racha -$137.56. No hay nada que
     "activar" - `RISK_PER_TRADE_PCT` sigue en 2.0, es la recomendación de
     no subirlo, no una feature pendiente.
+14. Diagnóstico de la inconsistencia entre mitades de Oro (28/09/2026) -
+    ya respondido, no es un pendiente accionable, queda como referencia.
+    Ver "Diagnóstico de la inconsistencia entre mitades de Oro" más
+    arriba: la 2da mitad del período no fue más volátil, fue más lateral y
+    comprimida (ATR -25%, Efficiency Ratio 4x menor) - la cantidad de
+    reversiones genuinas (salidas por TP) es idéntica en las dos mitades
+    (7 y 7), pero el régimen lateral generó 10 salidas por SL adicionales
+    sin sumar ninguna ganadora más. Sugerencia sin evaluar todavía para una
+    futura iteración: filtro por régimen de volatilidad (piso de ATR) en
+    vez de por dirección (lo que ya se probó y falló).
 
 ## Cómo correr cosas
 
