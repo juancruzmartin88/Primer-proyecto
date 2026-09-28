@@ -1410,6 +1410,69 @@ straddle semanal). Sin flag de producción - no hace falta código nuevo,
 `StructuralPullbackStrategy(symbol=..., timeframe="H4")` ya es instanciable
 tal cual, solo falta más historial.
 
+## Diagnóstico de régimen de mercado en BTC (28/09/2026) — no es lo mismo que Oro
+
+Motivado por 2 semanas sin ninguna operación ejecutada en BTC en la cuenta
+real (mismo día que se descartó la Metodología v2 "pura" - ver más arriba -
+que confirmó que el bot está bien calibrado, pero no explicaba el silencio
+en sí). Mismo enfoque que el diagnóstico de Oro (sección de arriba): ATR,
+Efficiency Ratio de Kaufman, frecuencia de toques de RSI extremo - más un
+paso extra que en Oro no hizo falta: correr la lógica exacta de producción
+candle por candle para localizar el filtro exacto que bloquea cada caso.
+
+**Datos**: Twelve Data no llega a la fecha actual (el CSV de referencia de
+7 meses termina el 09/09/2026) - se le pidió al usuario un export real de
+MT5 de `BTCUSDm` H1 (01-28/09/2026, 668 velas), mismo mecanismo que se usó
+para `XAGUSDm` y el straddle semanal de Oro.
+
+**Resultado 1 - se descarta el patrón de Oro**: ATR, Efficiency Ratio y
+frecuencia de toques de RSI extremo están todos en rango normal o por
+encima del promedio histórico, no comprimidos:
+
+| Métrica | Línea de base (7 meses) | Últimas 3 semanas |
+|---|---|---|
+| ATR(14) promedio | 420.43 | 422.04 (igual) |
+| Efficiency Ratio semanal | 0.0848 | 0.063 / 0.116 / 0.138 / 0.084 / 0.155 |
+| Toques de RSI 35/65 por semana | 34.97 | **41.7** (más, no menos) |
+
+**Resultado 2 - la causa real, encontrada corriendo la logica exacta de
+produccion** desde la ultima señal cruda (16/09 09:00) hasta hoy (298
+velas x 2 direcciones = 596 chequeos):
+
+| Filtro | Fallan | % de los que llegan |
+|---|---|---|
+| Vela de confirmación | 298 | 50% (normal) |
+| Vela de rechazo (geometria) | 265 de 298 | 89% |
+| RSI extremo + giro confirmado | **33 de 33** | **100%** |
+| Volumen / Nivel | 0 | nunca se llego a chequear |
+
+De los 33 casos con vela de rechazo + confirmación geometricamente validas,
+ninguno coincidio con un RSI realmente extremo (29 nunca tocaron 35/65 en
+la ventana, 4 tocaron pero no habian girado de vuelta para la vela de
+confirmacion). **Es una desincronizacion puntual entre patron de vela y
+momento de RSI extremo, no falta de ninguno de los dos por separado** -
+ambos siguen ocurriendo a tasa normal, pero dejaron de coincidir en la
+misma vela desde el 16/09.
+
+**Resultado 3 - contexto historico**: el gap maximo entre señales crudas en
+los 7 meses de referencia fue 10.9 dias (23/05-07/06). El silencio actual
+(16/09-28/09, ~12.4 dias y contando) ya supera ese record - es la sequia
+mas larga del periodo de referencia, no una racha tipica, aunque tampoco
+astronomicamente fuera de rango dado lo sesgada a la derecha que ya era
+la distribucion de gaps.
+
+**Conclusión**: no es un bug del bot (se corrio su logica real, tal cual
+esta en produccion, y se comporta exactamente como esta diseñada) ni un
+cambio de regimen tipo Oro (volatilidad y frecuencia de RSI extremo son
+normales o mas altas). Es ruido estadistico de una desincronizacion entre
+dos condiciones que normalmente coinciden con cierta frecuencia - mas
+inusual que el resto del historial reciente (nuevo record de silencio),
+pero del mismo tipo de variacion que el sistema ya mostro antes (gaps de
+7-11 dias ya habian aparecido). **No requiere ninguna accion de código** -
+mismo espiritu que la decision 10 (el caso puntual de BTC post-Fed se
+interpreto como ruido normal, no como falla estructural). Si el silencio
+se extiende mucho mas alla de este record, ahi si ameritaria revisitarlo.
+
 ## Próximos pasos pendientes
 
 1. Juntar operaciones reales de la cuenta real con la Metodología v2 (RSI
@@ -1554,6 +1617,17 @@ tal cual, solo falta más historial.
     el techo de riesgo y el filtro de volatilidad, mismo patrón) - recién
     ahí conseguir más historial en 4H y revalidar. Sin flag de producción,
     no hace falta código nuevo.
+18. Diagnóstico de régimen de mercado en BTC (28/09/2026) - ya respondido,
+    no es un pendiente accionable, queda como referencia. Ver "Diagnóstico
+    de régimen de mercado en BTC" más arriba: a diferencia de Oro, ATR y
+    frecuencia de toques de RSI extremo están en rango normal o por encima
+    del promedio - no hay compresión de volatilidad. La causa real es una
+    desincronización puntual entre la geometría de la vela de rechazo y el
+    momento del RSI extremo (100% de los candidatos que llegan a ese
+    filtro fallan ahí desde el 16/09) - ruido estadístico, no un bug ni un
+    cambio de régimen. El silencio actual (~12.4 días) ya es récord sobre
+    el histórico de 7 meses (máximo previo: 10.9 días), pero del mismo tipo
+    de variación ya vista antes. No requiere ninguna acción de código.
 
 ## Cómo correr cosas
 
