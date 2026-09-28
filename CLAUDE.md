@@ -1235,20 +1235,60 @@ capital: las señales de mejor calidad detectadas por el filtro de
 volatilidad son sistemáticamente las que el filtro de capital ya venía
 descartando por SL ancho.
 
-**Decisión: NO se activa.** A diferencia del resto de los hallazgos
-bloqueados solo por "falta de capital" (Oro en general, el straddle
-semanal), acá el bloqueo no se resuelve únicamente con que el capital
-crezca lo suficiente para el filtro de capital en sí - mientras el filtro
-de capital siga privilegiando SL angosto, el piso de volatilidad seguirá
-en conflicto directo con él. Sin flag de producción - no hace falta código
-nuevo para reconsiderarlo, `VolatilityFilteredStrategy` ya es reusable tal
-cual. Si en el futuro se quiere revisitar: hace falta que el capital crezca
-lo bastante como para que el filtro de capital deje de ser el cuello de
-botella dominante (dejando pasar señales con SL más ancho) - recién ahí el
-piso de volatilidad podría sumar en la práctica, no solo en el backtest
-exploratorio. Queda como el segundo hallazgo de calidad de señal genuino de
-este proyecto (junto con RSI 35/65 en BTC y el straddle semanal) que no se
-puede ejecutar hoy - documentado para no tener que redescubrirlo.
+**Decisión: NO se activa todavía.** Sin flag de producción - no hace falta
+código nuevo para reconsiderarlo, `VolatilityFilteredStrategy` ya es
+reusable tal cual. Queda como el segundo hallazgo de calidad de señal
+genuino de este proyecto (junto con RSI 35/65 en BTC y el straddle semanal)
+que no se puede ejecutar hoy - documentado para no tener que redescubrirlo.
+
+### Diagnóstico de seguimiento (28/09/2026): ¿el choque con el filtro de capital es inevitable, o se resuelve con capital? — se resuelve con capital
+
+El párrafo original de esta sección (arriba) especulaba que el bloqueo "no
+se resuelve únicamente con que el capital crezca" porque el filtro de
+capital privilegia SL angosto y el piso de ATR exige lo contrario - una
+lectura que sonaba a contradicción estructural. El usuario pidió
+confirmarlo antes de cerrar el tema: **extraer, de las señales crudas que
+pasan cada piso de ATR, la distribución real del ancho de SL técnico**, sin
+tocar código - análisis ad hoc (no comiteado, reproducible con las mismas
+piezas de `src/`) sobre las 77 señales crudas de Oro del período de
+referencia.
+
+**Resultado: hay variabilidad real, no un acoplamiento matemático
+perfecto** - correlación (Pearson) ATR vs ancho de SL = **0.72** (fuerte,
+no 1.0). Pero en esta muestra puntual de 7 meses, ninguna señal con ATR≥12
+tiene un SL lo bastante angosto para pasar el umbral actual:
+
+| Subconjunto | n | SL más angosto observado | Umbral actual ($715.24, 2%) |
+|---|---|---|---|
+| ATR ≥ 12 | 59 | 18.04 puntos | $14.30 |
+| ATR ≥ 14.27 | 42 | 19.17 puntos | $14.30 |
+| ATR < 12 (contraste) | 18 | 6.99 puntos (2 de 18 sí pasan hoy) | — |
+
+La brecha entre el SL más angosto de la banda ATR≥12 (18.04) y el umbral
+actual (14.30) es de solo $3.74 - no es una distancia estructural enorme.
+Traducido a capital necesario (2% de riesgo objetivo):
+
+| Capital | Señales ATR≥14.27 ejecutables |
+|---|---|
+| $715 (actual) | 0/42 (0%) |
+| ~$900-960 | empieza a entrar la primera |
+| $1.300 | 5/42 (12%) |
+| $2.000 | 11/42 (26%) |
+| $2.500 | 22/42 (**52%**) |
+| $3.000 | 30/42 (71%) |
+
+**Corrección a la conclusión original de esta sección**: el bloqueo NO es
+un choque estructural entre dos filtros que exigiría rediseñar el filtro
+de capital - se resuelve con crecimiento de capital, igual que el resto de
+las limitaciones de Oro en este proyecto (sección 3.2, straddle semanal).
+La diferencia con esos otros casos es que acá ya queda cuantificado
+cuánto capital hace falta: recién con ~$900-1.000 empieza a entrar la
+primera señal filtrada por volatilidad, y con ~$2.000-2.500 (2.8x-3.5x el
+capital actual) entraría una porción relevante (26%-52%) de la muestra de
+7 meses. No se tocó ningún parámetro ni filtro - el hallazgo de calidad de
+señal (piso 14.27) sigue sin flag de producción, pendiente de que el
+capital llegue a ese rango antes de volver a evaluarlo con datos más
+recientes.
 
 ## Próximos pasos pendientes
 
@@ -1350,18 +1390,20 @@ puede ejecutar hoy - documentado para no tener que redescubrirlo.
     futura iteración: filtro por régimen de volatilidad (piso de ATR) en
     vez de por dirección (lo que ya se probó y falló).
 15. Filtro de piso de volatilidad (ATR) para Oro - **señal validada,
-    bloqueado (28/09/2026)**. Ver "Filtro de piso de volatilidad (ATR) para
-    Oro" más arriba. En vista exploratoria confirma el diagnóstico: piso
-    14.27 mejora PF (1.31→2.42), win rate (33.3%→50.0%) y arregla la
-    inconsistencia entre mitades (0.59→1.70 en la 2da mitad) a la vez. Pero
-    en vista realista choca de frente con el filtro de capital de la
-    sección 3.2 (que privilegia SL angosto/baja volatilidad) - cualquier
-    piso que mejore la calidad de señal reduce la ejecución real a 0-1
-    trades. A diferencia del resto de los pendientes bloqueados por
-    capital, este no se resuelve solo con que el capital crezca lo
-    suficiente para el filtro de capital en general - hace falta que deje
-    de privilegiar SL angosto específicamente. Sin flag de producción, no
-    hace falta código nuevo para reconsiderarlo.
+    bloqueado por capital, cuantificado (28/09/2026)**. Ver "Filtro de piso
+    de volatilidad (ATR) para Oro" más arriba. En vista exploratoria
+    confirma el diagnóstico: piso 14.27 mejora PF (1.31→2.42), win rate
+    (33.3%→50.0%) y arregla la inconsistencia entre mitades (0.59→1.70 en
+    la 2da mitad) a la vez. En vista realista da 0 trades ejecutables hoy -
+    pero el diagnóstico de seguimiento (mismo día) confirmó que **sí se
+    resuelve con crecimiento de capital** (no es un choque estructural
+    irresoluble entre filtros, como se había especulado inicialmente):
+    correlación ATR-vs-SL 0.72 (variabilidad real, no acoplamiento
+    perfecto), y con ~$900-1.000 ya entraría la primera señal filtrada,
+    ~$2.000-2.500 destrabaría 26%-52% de la muestra de 7 meses. Sin flag de
+    producción - no hace falta código nuevo para reconsiderarlo, solo que
+    el capital llegue a ese rango y volver a correr el backtest con datos
+    más recientes.
 
 ## Cómo correr cosas
 
