@@ -1357,6 +1357,59 @@ reconsiderarlo, `PureV2Strategy` ya es reusable tal cual si en el futuro
 se quiere probar una variante intermedia (por ejemplo, sacar solo uno de
 los dos requisitos en vez de los dos a la vez).
 
+## Metodología v2 en Oro 4H (28/09/2026) — muestra insuficiente, sin conclusión
+
+Primer paso pedido por el usuario para evaluar sumar **swing trading al day
+trading actual** (mixear ambos, no reemplazar). Mismo esqueleto ya validado
+en producción (RSI(14) real cruzando 35/65 en vela cerrada, vela de rechazo
+con el test geométrico estricto, nivel estructural, SL por estructura +
+margen de ATR, TP al próximo nivel) - `StructuralPullbackStrategy` no se
+toca, solo cambia `timeframe="H4"` y los datos de entrada.
+`scripts/backtest_gold_4h.py` resamplea el mismo CSV H1 de referencia (7
+meses) a velas 4H con `resample_to_4h` (`src/trend_filter.py`, ya usada
+para el filtro de tendencia 4H) - sin descargar datos nuevos, 1.251 velas
+4H resultantes.
+
+**Resultado:**
+
+| | Valor |
+|---|---|
+| Señales crudas | 27 |
+| Trades (exploratorio, lote fijo) | **9** |
+| Win rate | 44.4% |
+| Profit factor | 1.11 |
+| 1ra mitad (4 trades) | PF 0.32 |
+| 2da mitad (5 trades) | PF 3.05 |
+| Trades ejecutables (realista, capital $715.24) | **0** de 9 |
+
+**No se puede aplicar el criterio de aprobación (ni aceptar ni rechazar)**:
+n=9 es una muestra demasiado chica (menos de un cuarto de la usada para
+validar RSI 35/65 en BTC), y el split de mitades (PF 0.32 vs 3.05, con 4 y
+5 trades respectivamente) es ruido de muestra chica, no una señal de
+consistencia real - mismo patrón ya visto con el subconjunto de 12 trades
+ejecutables del straddle semanal (split 2.18/0.58). En vista realista, 0 de
+9 pasan el filtro de capital de la sección 3.2 - mismo cuello de botella
+estructural del resto de Oro, esperable porque el SL calculado sobre
+velas de 4H (ventana de pullback + margen de ATR en esa escala) es
+sistemáticamente más ancho en puntos que en 1H.
+
+La causa de fondo es aritmética: los mismos 7 meses de referencia dan
+~5.000 velas en 1H pero solo ~1.250 en 4H, y de esas solo 27 señales crudas
+pasan los 4 filtros de la Metodología v2 - mismo problema de historial
+corto que ya se vio con M30 (esa vez la conclusión se invirtió por completo
+al conseguir más meses de datos), aplicado acá en la dirección de mayor
+agregación en vez de mayor granularidad.
+
+**Sin decisión de aceptar/rechazar todavía.** Sugerencia concreta para
+retomar: extender el período de referencia (14-18 meses en vez de 7) para
+juntar una muestra de al menos 25-30 trades ejecutables en vista realista
+antes de evaluar PF y consistencia - Twelve Data ya mostró historial
+limitado en el pasado (M30); si hace falta, se puede pedir un export más
+largo directo de MT5 (mismo mecanismo que se usó para XAUUSDm en el
+straddle semanal). Sin flag de producción - no hace falta código nuevo,
+`StructuralPullbackStrategy(symbol=..., timeframe="H4")` ya es instanciable
+tal cual, solo falta más historial.
+
 ## Próximos pasos pendientes
 
 1. Juntar operaciones reales de la cuenta real con la Metodología v2 (RSI
@@ -1482,6 +1535,17 @@ los dos requisitos en vez de los dos a la vez).
     de entrada. Sin flag de producción, `PureV2Strategy`
     (`src/strategies/pure_v2.py`) queda reusable tal cual si se quiere
     probar una variante intermedia (sacar solo uno de los dos requisitos).
+17. Metodología v2 en Oro 4H (primer paso hacia swing trading) - **muestra
+    insuficiente, sin decisión (28/09/2026)**. Ver "Metodología v2 en Oro
+    4H" más arriba. Solo 9 trades en vista exploratoria y 0 ejecutables en
+    vista realista sobre los mismos 7 meses de referencia (que en 4H dan
+    ~1.250 velas en vez de ~5.000) - ni para aceptar ni para rechazar.
+    Split de mitades (PF 0.32 vs 3.05) es ruido de muestra chica, no
+    señal. Antes de retomar: extender el período de referencia (14-18
+    meses) para juntar al menos 25-30 trades ejecutables, pidiendo un
+    export más largo de MT5 si Twelve Data no alcanza (mismo patrón que
+    M30 y el straddle semanal). Sin flag de producción, no hace falta
+    código nuevo.
 
 ## Cómo correr cosas
 
