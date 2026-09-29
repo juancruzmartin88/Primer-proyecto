@@ -1609,16 +1609,64 @@ señales con estos parámetros puntuales. Dicho eso, la dirección es
 consistentemente negativa: PF por debajo de 1.0 en la única vista con
 algo de muestra, y el único trade ejecutable en cuenta real fue perdedor.
 
-**Decisión: NO se activa, pero sin cerrar el concepto del todo** (a
-diferencia de Plata/Breakout, donde la señal era mala sin ambigüedad) -
-el diseño está probado como demasiado restrictivo para generar muestra
-con estos parámetros, no como fundamentalmente malo. Sin flag de
-producción. Si se quiere reintentar: aflojar `adx_threshold` (ej. 25 en
-vez de 20) o `regime_confirmation_candles` (ej. 5-6 en vez de 8) para
-generar más señales antes de evaluar calidad, o probar TP en el extremo
-opuesto del rango en vez del punto medio (la variante "menos
-conservadora" que el usuario dejó como alternativa para una segunda
-iteración).
+**Decisión original (revisada mismo día, ver subsección de abajo): NO se
+activa.** La lectura inicial ("demasiado restrictivo para generar
+muestra, no necesariamente malo") quedó corregida tras probar aflojar los
+parámetros - ver más abajo.
+
+### Intento de aflojar parámetros (28/09/2026) — empeora en los 3 ejes, se cierra el concepto
+
+El usuario pidió aflojar los 3 filtros más restrictivos para ver si
+generaban más señales sin perder calidad: (1) régimen más laxo (ADX<25 en
+vez de <20, 6 velas en vez de 8), (2) banda de RSI más ancha (45/55 en vez
+de 40/60), (3) proximidad al borde más laxa (20% del rango en vez de
+0.5x ATR - para esto se agregó `level_proximity_pct_of_range` a
+`RangeReversionStrategy`, 1 test nuevo). Probados de a uno primero
+(triage rápido, solo conteo de señales crudas sin `RiskManager`, ~20s por
+variante en vez de los ~80 min que tardaba antes recalcular el benchmark
+de v2 en cada corrida - se optimizó `scripts/backtest_range_reversion.py`
+para calcular v2 una sola vez).
+
+**Triage (señales crudas)**: régimen laxo 11→29, RSI 45/55 11→27,
+proximidad sola 11→11 (sin efecto, no era el cuello de botella). Con esto
+se decidió correr el backtest completo para régimen laxo, RSI 45/55, y
+los 3 combinados (proximidad sola no se corrió completa, no tenía sentido
+sin efecto en el triage).
+
+**Resultado completo:**
+
+| Variante | Señales | Realista (trades/WR/PF) | Exploratorio (trades/WR/PF/DD) | Split 1ra/2da |
+|---|---|---|---|---|
+| Baseline | 11 | 1 / 0% / 0.00 | 10 / 40% / 0.95 / 45.2% | 1.25 / 0.52 |
+| 1) Régimen laxo | 29 | 2 / 0% / 0.00 | 26 / 42.3% / **0.67** / **104.2%** | 1.41 / **0.20** |
+| 2) RSI 45/55 | 27 | 2 / 0% / 0.00 | 20 / 40% / **0.68** / **84.5%** | 1.05 / 0.39 |
+| 1+2+3 combinado | 58 | 4 / 0% / 0.00 | 47 / 48.9% / **0.66** / **138.0%** | 1.23 / 0.29 |
+
+Solapamiento con v2: 0 en las 4 variantes, sin contradicciones en ninguna
+- esa parte del diseño sigue funcionando bien en todos los casos.
+
+**Aflojar cualquiera de los 3 ejes empeora, no mejora**: profit factor
+exploratorio cae de 0.95 a 0.66-0.68 en las tres variantes (nunca sube),
+drawdown se dispara de 45% a 84-138%, y la segunda mitad del período pasa
+de ya mala (0.52) a catastrófica (0.20-0.39) en cada una. **En vista
+realista, 0% de win rate en las 4 variantes combinadas (0 de 8 operaciones
+reales)** - un patrón demasiado consistente entre variantes independientes
+para atribuirlo solo a la muestra chica.
+
+**Corrección de la conclusión original**: no es que el diseño fuera
+"demasiado restrictivo pero potencialmente bueno" - aflojar en 3 ejes
+independientes y ver que empeora en los tres indica que el combo
+régimen+RSI 40/60+rechazo+punto medio no encuentra buenas oportunidades en
+Oro incluso con más espacio para operar. Más señales, pero sistemáticamente
+de peor calidad, no señales buenas diluidas por ruido.
+
+**Decisión final: se cierra el concepto tal como está diseñado.** No
+seguir ajustando régimen/RSI/proximidad - ya se probó en las 3 direcciones
+y las 3 empeoran. Si se quiere retomar la idea de cubrir el tiempo sin
+operar en Oro, el camino más prometedor sin probar todavía es TP en el
+extremo opuesto del rango en vez del punto medio (la única variante del
+diseño original que queda sin evaluar) - un cambio de diseño distinto, no
+un aflojamiento de filtros. Sin flag de producción.
 
 ## Próximos pasos pendientes
 
@@ -1790,18 +1838,22 @@ iteración).
     `SyncWindowStrategy` (`src/strategies/sync_window.py`) queda reusable
     tal cual para otra variante puntual.
 20. Metodología de rango en Oro (sistema paralelo a v2, activo en fase
-    lateral) - **no se activa, muestra insuficiente sin señal positiva
-    (28/09/2026)**. Ver "Metodología de rango en Oro" más arriba. Solo 10
-    trades exploratorio (PF 0.95, split 1.25/0.52) y 1 en vista realista
-    (perdedor) sobre los mismos 7 meses de referencia - la combinatoria de
-    5 condiciones simultáneas genera muy pocas señales con estos
-    parámetros. No hay señal positiva, pero tampoco se descarta el
-    concepto del todo (a diferencia de Plata/Breakout) - queda como
-    demasiado restrictivo, no como fundamentalmente malo. Sin
-    solapamiento/contradicción con v2 (0 de 11 señales coinciden en la
-    misma vela - el separador de régimen funciona). Sin flag de
-    producción. Si se retoma: aflojar `adx_threshold` o
-    `regime_confirmation_candles`, o probar TP en el extremo opuesto del
+    lateral) - **CERRADA, aflojar parámetros empeora en los 3 ejes
+    probados (28/09/2026)**. Ver "Metodología de rango en Oro" más arriba,
+    incluida la subsección "Intento de aflojar parámetros". Baseline: 10
+    trades exploratorio PF 0.95, 1 en realista (perdedor). Se probó
+    aflojar régimen (ADX<25/6v), banda de RSI (45/55) y proximidad (20%
+    del rango), de a uno y combinados - los 3 ejes SUBEN la frecuencia
+    (11→27-58 señales) pero BAJAN el profit factor exploratorio (0.95→
+    0.66-0.68) y DISPARAN el drawdown (45%→84-138%); en vista realista, 0%
+    de win rate en las 4 variantes combinadas (0 de 8 trades). No es un
+    problema de muestra chica que se resuelva con más señales - el
+    combo régimen+RSI+rechazo+punto medio no encuentra buenas
+    oportunidades en Oro, y aflojarlo solo suma señales de peor calidad.
+    Sin solapamiento/contradicción con v2 en ninguna variante (0 en las
+    4). Sin flag de producción. Si se retoma la idea en el futuro: no
+    seguir aflojando régimen/RSI/proximidad (ya probado, empeora) - la
+    única variante de diseño sin evaluar es TP en el extremo opuesto del
     rango en vez del punto medio.
 
 ## Cómo correr cosas
