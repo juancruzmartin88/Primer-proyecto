@@ -1668,6 +1668,94 @@ extremo opuesto del rango en vez del punto medio (la única variante del
 diseño original que queda sin evaluar) - un cambio de diseño distinto, no
 un aflojamiento de filtros. Sin flag de producción.
 
+## Tendencia con pullback a EMA en Oro (28-29/09/2026) — resultado fuerte en vista realista, con advertencia importante
+
+Hipótesis nueva pedida por el usuario, sistema SEPARADO de la Metodología
+v2: en vez de reversión (entrar contra un extremo de RSI), seguimiento de
+tendencia - reutiliza el único elemento validado de v2 (la vela de
+rechazo geométrica) pero a favor de la tendencia, no en contra. Diseño:
+(1) EMA(50) en 1H define tendencia, sostenida `trend_confirmation_candles`
+(5-8, default 6) velas antes del retroceso; (2) el precio retrocede hacia
+la EMA; (3) entrada solo si en ese retroceso aparece una vela de rechazo
+geométrica (mismo test que v2: mecha ≥1.5x cuerpo, mecha opuesta ≤30% del
+rango) a favor de la tendencia; (4) SL detrás del extremo de la vela, TP
+reusando el mecanismo de nivel estructural + fallback de v2 (a pedido
+explícito: "a definir por Code, lo que dé mejor resultado").
+
+Implementado en `src/strategies/trend_pullback.py` (`TrendPullbackStrategy`,
+no hereda de `StructuralPullbackStrategy` - lógica de entrada distinta de
+punta a punta - pero reusa `is_hammer`/`is_shooting_star`,
+`get_levels_for_symbol`, `nearest_level_beyond_price`, mismo patrón que
+`BreakoutStrategy`). Se agregó `ema()` a `src/indicators.py`. Igual que
+`RangeReversionStrategy`, NO exige vela de confirmación separada (el
+diseño del usuario solo menciona la vela de rechazo como gatillo) - mismo
+punto de diseño marcado como discutible. 8 tests nuevos (2 en
+`test_indicators.py`, 6 en `test_trend_pullback.py`), verificados
+numéricamente. `scripts/backtest_trend_pullback.py` corre el backtest
+completo mas el chequeo de solapamiento con v2 (calculando el benchmark de
+v2 una sola vez, mismo patrón de optimización que
+`backtest_range_reversion.py`).
+
+**Resultado — vista realista (capital real $707.24, filtro sección 3.2):**
+
+| | v2 (benchmark) | Tendencia-pullback |
+|---|---|---|
+| Señales / Trades | 77 / 2 | 116 / **31** |
+| Win rate | 50.0% | 61.3% |
+| Profit factor | 2.36 | **3.40** |
+| Drawdown | 1.7% | 6.4% |
+| PF 1ra mitad | — (n=1) | **4.47** (15 trades) |
+| PF 2da mitad | — (n=1) | **2.83** (16 trades) |
+
+Cumple el criterio de aprobación con margen amplio: PF>1.5 en las dos
+mitades, sin regresión (mejora el benchmark), con 15x más muestra
+ejecutable que v2 en Oro. **Es el resultado más sólido en vista realista
+de todo lo evaluado sobre Oro en este proyecto** (por encima incluso del
+straddle semanal, que está bloqueado por capital - esta estrategia no lo
+está).
+
+**Solapamiento con v2**: 4 de 116 señales coinciden en la misma vela
+(3.4%), y las 4 son contradictorias (ninguna coincide en la misma
+dirección) - esperable, dado que una es de reversión y la otra de
+tendencia. Poco frecuente, pero sin regla de desempate todavía si se
+llegaran a correr las dos en paralelo.
+
+**Advertencia importante - la vista exploratoria diverge fuerte:**
+
+| | Trades | Win rate | PF | Split 1ra/2da |
+|---|---|---|---|---|
+| Exploratorio (lote fijo) | 59 | 45.8% | **1.31** | **0.90** / 2.15 |
+
+La primera mitad da perdedora en modo exploratorio - algo que no había
+pasado con ningún resultado que se viera tan bien en vista realista. Se
+investigó operación por operación (mismo tipo de diagnóstico que destapó
+el bug de RR trivial en la estrategia de rango): **las primeras 10
+operaciones del período (24/02-09/03, el tramo más volátil de los 7 meses
+de referencia - mismo tramo identificado con ATR más alto en el
+diagnóstico de la inconsistencia entre mitades de Oro) tienen SL anchos
+(17-60 puntos) y en su mayoría pierden - exactamente las que el filtro de
+capital bloquea por SL demasiado ancho, y por eso nunca aparecen en la
+vista realista.**
+
+**Interpretación**: el filtro de capital de la sección 3.2 no solo protege
+el riesgo en esta estrategia - terminó filtrando también por calidad. Un
+retroceso angosto y limpio hacia la EMA es una señal de continuación más
+sana que un retroceso profundo y volátil, y la correlación observada (SL
+angosto = pullback limpio = mejor setup) tiene sentido con la lógica de
+tendencia, no parece un artefacto de sizing. El resultado en vista
+realista es creíble, no ruido de muestra chica - tiene una explicación
+mecánica clara y verificada operación por operación. Pero la calidad de
+señal "cruda" (sin el filtro de capital) no es tan fuerte por sí sola
+(PF 1.31, primera mitad perdedora) - **el filtro de capital es parte real
+del motor de esta ventaja, no solo un detalle de sizing aparte.**
+
+**Sin decisión de activar todavía** - resultado presentado al usuario con
+la advertencia completa, pendiente de que decida cómo seguir (activar,
+dejar sin flag para más validación, o pedir un ajuste). Mismo disclaimer
+de siempre sobre volumen: estos CSV (Twelve Data) no traen columna de
+volumen, así que este backtest no ejercita ningún chequeo de volumen que
+se le quisiera agregar a futuro. Sin flag de producción por ahora.
+
 ## Próximos pasos pendientes
 
 1. Juntar operaciones reales de la cuenta real con la Metodología v2 (RSI
@@ -1855,6 +1943,20 @@ un aflojamiento de filtros. Sin flag de producción.
     seguir aflojando régimen/RSI/proximidad (ya probado, empeora) - la
     única variante de diseño sin evaluar es TP en el extremo opuesto del
     rango en vez del punto medio.
+21. Tendencia con pullback a EMA en Oro - **resultado fuerte, pendiente de
+    decisión del usuario (28-29/09/2026)**. Ver "Tendencia con pullback a
+    EMA en Oro" más arriba. Vista realista: 31 trades ejecutables (vs 2 de
+    v2), PF 3.40, consistente en las dos mitades (4.47/2.83) - el
+    resultado más sólido en vista realista de todo el proyecto sobre Oro.
+    PERO vista exploratoria diverge (PF 1.31, 1ra mitad perdedora 0.90) -
+    investigado y explicado: las operaciones de SL ancho del tramo más
+    volátil del período (24/02-09/03) pierden y quedan bloqueadas por el
+    filtro de capital, que termina filtrando por calidad ademas de riesgo
+    en esta estrategia en particular (pullback angosto = setup más sano).
+    Solapamiento con v2: 3.4% de las señales (4 de 116), todas
+    contradictorias, sin regla de desempate definida todavía. Sin flag de
+    producción - pendiente de que el usuario decida cómo seguir (activar,
+    dejar sin flag, pedir más validación).
 
 ## Cómo correr cosas
 
