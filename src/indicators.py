@@ -54,6 +54,25 @@ def atr(data: pd.DataFrame, period: int = 14) -> pd.Series:
     return tr.ewm(alpha=1 / period, min_periods=period, adjust=False).mean()
 
 
+def efficiency_ratio(close: pd.Series, period: int = 14) -> pd.Series:
+    """Efficiency Ratio de Kaufman - 0 (puro ruido lateral) a 1 (tendencia
+    perfectamente recta), usado hasta ahora solo en diagnosticos ad hoc
+    (Oro/BTC, 28/09/2026) - agregado como indicador real el 30/09/2026 para
+    usarlo como filtro activo (`src/regime_filter.py`), no solo lectura.
+
+    ER = |cambio neto en `period` velas| / suma de |cambio vela a vela| en
+    esa misma ventana. Numerador y denominador usan el mismo tramo de
+    precio, asi que por desigualdad triangular el resultado siempre cae en
+    [0, 1] - no hace falta acotarlo a mano.
+    """
+    net_change = (close - close.shift(period)).abs()
+    volatility = close.diff().abs().rolling(period, min_periods=period).sum()
+    er = net_change / volatility.replace(0, np.nan)
+    # Volatilidad 0 (precio plano en toda la ventana) es el caso degenerado
+    # 0/0 - no hay eficiencia que medir, se define como 0 (lateral puro).
+    return er.where(volatility != 0, 0.0)
+
+
 def adx(data: pd.DataFrame, period: int = 14) -> pd.Series:
     """ADX de Wilder - fuerza de tendencia (no direccion), 0-100.
 

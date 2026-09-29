@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.indicators import adx, atr, ema, rsi
+from src.indicators import adx, atr, ema, efficiency_ratio, rsi
 
 
 def test_rsi_is_100_after_only_gains():
@@ -101,3 +101,30 @@ def test_ema_reacts_faster_than_sma_of_the_same_period():
     ema_value = ema(closes, period=10).iloc[-1]
     sma_value = sma(closes, period=10).iloc[-1]
     assert ema_value > sma_value
+
+
+def test_efficiency_ratio_is_close_to_1_for_a_straight_trend():
+    closes = pd.Series([100 + i * 0.5 for i in range(30)])
+    result = efficiency_ratio(closes, period=14)
+    assert result.iloc[-1] == pytest.approx(1.0, abs=0.01)
+
+
+def test_efficiency_ratio_is_close_to_0_for_pure_noise_around_a_level():
+    np.random.seed(3)
+    closes = pd.Series(100 + np.random.normal(0, 1, 30))
+    result = efficiency_ratio(closes, period=14)
+    assert result.iloc[-1] < 0.3
+
+
+def test_efficiency_ratio_exceeds_noise_on_the_same_period_when_trending():
+    n = 30
+    trend = pd.Series([100 + i * 0.5 for i in range(n)])
+    np.random.seed(3)
+    noise = pd.Series(100 + np.random.normal(0, 1, n))
+    assert efficiency_ratio(trend, period=14).iloc[-1] > efficiency_ratio(noise, period=14).iloc[-1]
+
+
+def test_efficiency_ratio_is_zero_when_price_is_perfectly_flat():
+    closes = pd.Series([100.0] * 30)
+    result = efficiency_ratio(closes, period=14)
+    assert result.iloc[-1] == 0.0
