@@ -1771,6 +1771,64 @@ Mismo disclaimer de siempre sobre volumen: estos CSV (Twelve Data) no
 traen columna de volumen, así que este backtest no ejercita ningún
 chequeo de volumen que se le quisiera agregar a futuro.
 
+## Metodología v2 en EUR/USD (29/09/2026) — RECHAZADA, pero confirma la hipótesis de capital
+
+El usuario pidió evaluar v2 completa (sin modificar ningún parámetro) en
+EUR/USD, hipótesis de diversificación de instrumento: en Oro y BTC el
+valor por punto es alto, así que el filtro de capital de la sección 3.2
+bloquea la mayoría de las señales al lote mínimo aunque sean técnicamente
+buenas - en Forex el valor por pip a lote 0.01 es mucho menor
+(`pip_size=0.0001`, `pip_value_per_lot=10.0`, estándar de 1 lote = $10/pip
+→ $0.10/pip al lote mínimo), así que el mismo criterio de riesgo debería
+dejar pasar una proporción mucho más alta de señales.
+
+**Datos**: export real de MT5 (`Symbols → Bars → EURUSDm → H1 → Export`,
+mismo mecanismo que Plata/BTC reciente/straddle semanal), 13/02-10/09/2026
+(mismo período de 7 meses de referencia), 3.592 velas -
+`data/eurusd_h1_raw.csv` (formato MT5 original) +
+`data/eurusd_h1_converted.csv` (convertido a `time,open,high,low,close`
+para los scripts existentes) - ambos gitignored.
+
+**Resultado**:
+
+| | Exploratorio (lote fijo) | Realista (capital real $707.24) |
+|---|---|---|
+| Trades | 40 | **40 (idénticos)** |
+| Win rate | 35.0% | 35.0% |
+| Profit factor | 1.12 | 1.08 |
+| Drawdown | 22.0% | 16.5% |
+
+Split de mitades (vista realista): 1ra mitad (20 trades) PF **1.38**, 2da
+mitad (20 trades) PF **0.82** (perdedora).
+
+**El punto central de la hipótesis se confirma con contraste total: 0 de
+40 señales bloqueadas por el filtro de capital (100% ejecutables)**,
+contra ~2.6% en Oro (2 de 77) - los volúmenes calculados van de 0.04 a
+0.09 lotes, siempre por encima del lote mínimo, nunca forzando el piso.
+El pip value bajo de EUR/USD resuelve por completo el cuello de botella
+de capital que tiene Oro - la mecánica de la hipótesis del usuario es
+correcta.
+
+**Pero no alcanza para aprobarla**: profit factor muy por debajo de 1.5
+en las dos vistas, y falla la consistencia entre mitades - la segunda
+mitad es directamente perdedora (PF 0.82), y ni siquiera la primera
+mitad (la mejor de las dos) llega al umbral. A diferencia de Oro, acá el
+problema NO es de ejecución (capital) sino de calidad de señal en sí con
+estos parámetros exactos aplicados tal cual a un instrumento de dinámica
+distinta - más parecido en espíritu al caso de Plata que al de Oro,
+aunque no tan mal (PF ~1.0-1.1 vs 0.24 de Plata) - zona intermedia, sin
+ambigüedad de "señal mala clara" pero sin cumplir el criterio tampoco.
+
+**Decisión: NO se activa v2 tal cual en EUR/USD.** Sin flag de
+producción - no hace falta código nuevo para reconsiderarlo,
+`StructuralPullbackStrategy(symbol="EURUSD", timeframe="H1")` ya es
+instanciable tal cual con la clase existente (mismo patrón que M30/Plata).
+Si se quiere retomar: repensar el criterio de entrada específico para
+Forex antes de asumir que los mismos parámetros de Oro/BTC funcionan
+igual - por ejemplo niveles manuales cargados a mano (como Oro/BTC tienen
+en `config/levels.json`) en vez de depender solo de fractales
+automáticos, dado que EUR/USD nunca tuvo niveles manuales cargados.
+
 ## Próximos pasos pendientes
 
 1. Juntar operaciones reales de la cuenta real con la Metodología v2 (RSI
@@ -1975,6 +2033,19 @@ chequeo de volumen que se le quisiera agregar a futuro.
     parte del loop automático. Seguimiento en vivo de las primeras 10-15
     operaciones reales (comparando WR/PF contra el backtest) a cargo del
     usuario, no es un pendiente técnico.
+22. Metodología v2 en EUR/USD - **rechazada, pero confirma la hipótesis de
+    capital (29/09/2026)**. Ver "Metodología v2 en EUR/USD" más arriba.
+    Punto central confirmado con contraste total: 0 de 40 señales
+    bloqueadas por el filtro de capital (100% ejecutables, vs 2.6% en
+    Oro) - el pip value bajo de Forex resuelve el cuello de botella de
+    capital por completo. Pero la calidad de señal con los parámetros de
+    v2 sin modificar no alcanza el criterio: PF 1.08-1.12, inconsistente
+    entre mitades (1.38/0.82, 2da mitad perdedora). No es un problema de
+    ejecución como en Oro, es de calidad de señal en este instrumento
+    puntual. Sin flag de producción. Si se retoma: repensar el criterio
+    de entrada para Forex (por ejemplo, niveles manuales cargados a mano
+    en vez de solo fractales) antes de asumir que los mismos parámetros
+    de Oro/BTC funcionan igual.
 
 ## Cómo correr cosas
 
