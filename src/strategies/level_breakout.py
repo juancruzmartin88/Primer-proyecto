@@ -89,7 +89,6 @@ class LevelBreakoutStrategy(Strategy):
         sl_atr_margin_mult: float = 0.3,
         min_risk_reward: float = 1.5,
         fallback_rr_multiple: float = 2.0,
-        fractal_lookback: int = 200,
     ) -> None:
         self.symbol = symbol
         self.timeframe = timeframe
@@ -101,8 +100,19 @@ class LevelBreakoutStrategy(Strategy):
         self.sl_atr_margin_mult = sl_atr_margin_mult
         self.min_risk_reward = min_risk_reward
         self.fallback_rr_multiple = fallback_rr_multiple
-        self.fractal_lookback = fractal_lookback
-        self.min_history = max(atr_period, volume_ma_period) + fractal_lookback + 5
+        # OJO (bug real detectado en el backtest del 29/09/2026): NO sumar
+        # el lookback de fractales (200 velas, fijo dentro de
+        # `detect_fractal_levels`, no parametrizado por esta clase) aca -
+        # `run_backtest`/el bot en vivo (`MT5Client.get_rates(count=200)`)
+        # nunca entregan mas de 200 velas por vuelta, asi que un
+        # min_history de 200+ deja a la estrategia sin poder operar NUNCA
+        # (0 trades en backtest pese a haber señales crudas de sobra). La
+        # deteccion de fractales no lo necesita: `detect_fractal_levels`
+        # ya usa `data.tail(200)` internamente y funciona bien con menos
+        # filas de las que pide - mismo patron que
+        # `StructuralPullbackStrategy.min_history`, que tampoco depende del
+        # lookback de fractales.
+        self.min_history = max(atr_period, volume_ma_period) + 10
 
         self._cached_time = None
         self._cached_setup: _Setup | None = None

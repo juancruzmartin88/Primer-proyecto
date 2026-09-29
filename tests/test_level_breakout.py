@@ -155,7 +155,7 @@ def test_sl_price_raises_when_requested_signal_does_not_match_setup(levels_file)
 
 
 def test_no_signal_below_min_history(levels_file):
-    rows = _base_rows(n=50)
+    rows = _base_rows(n=15)
     level = 110.0
     rows.append(dict(open=level - 0.2, high=level + 1.5, low=level - 0.3, close=level + 1.4, volume=300.0))
     rows.append(dict(open=level + 1.4, high=level + 2.0, low=level + 1.2, close=level + 1.8, volume=150.0))
