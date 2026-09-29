@@ -2223,6 +2223,22 @@ Oro/BTC funcionan igual acá.
     vela de confirmación, que `TrendPullbackStrategy` nunca exigió por
     diseño) - no seguir ajustando el período de la EMA. Sigue exclusiva
     de Oro como segunda línea manual. Sin flag de producción.
+26. Calidad de señal v2 por franja horaria - **análisis exploratorio, sin
+    señal clara (29/09/2026)**. Ver "Calidad de señal v2 por franja
+    horaria" más arriba. Se agruparon las señales del benchmark de 7
+    meses (Oro y BTC por separado) en 4 franjas horarias ART. Ningún
+    patrón es lo bastante limpio para proponer un filtro todavía, pero
+    dos franjas se destacan: Oro en sesión Europea (03-09 ART) es la más
+    consistente - PF por debajo de 1.0 en el total (0.19) y en las dos
+    mitades por separado, sin racha puntual - aunque con muestra chica
+    (11 trades). BTC en Tarde EEUU (13-18 ART) tiene el peor PF total
+    (0.59) pero el split de mitades es inconsistente (1.33→0.20), no se
+    puede descartar que sea solo una racha. El resto de las franjas tiene
+    splits que se dan vuelta por completo o muestras de 3-4 trades por
+    mitad, ruido. No se propone ningún filtro - falta juntar más
+    historial (mismo patrón que M30/Oro 4H) antes de evaluar esto en
+    serio, empezando por Oro en la sesión Europea si se quiere priorizar.
+    Sin flag de producción, análisis ad hoc no comiteado.
 
 ## Tendencia con pullback a EMA 21 en BTC (recalibrado, 29/09/2026) — RECHAZADA
 
@@ -2300,6 +2316,81 @@ período de la EMA). Sigue siendo exclusiva de Oro como segunda línea
 manual. Sin flag de producción - no hace falta código nuevo para
 reconsiderarlo, `TrendPullbackStrategy(symbol="BTCUSDm", ema_period=N)`
 ya es instanciable tal cual con cualquier período.
+
+## Calidad de señal v2 por franja horaria (29/09/2026) — exploratorio, sin señal clara
+
+El usuario pidió agrupar las señales de v2 ya identificadas en el
+benchmark de 7 meses (Oro y BTC por separado) por franja horaria de
+aparición en horario Argentina (ART = UTC-3; los CSV de Twelve Data vienen
+en UTC), para ver si alguna sesión de mercado concentra sistemáticamente
+mejor o peor calidad de señal. No es una estrategia nueva ni un cambio de
+entrada - análisis ad hoc, sin comitear código (mismo patrón que los
+diagnósticos de régimen de Oro/BTC), sobre los mismos trades del benchmark
+exploratorio (lote fijo) ya usado en el resto del proyecto - coincide
+exacto con los números ya documentados (Oro 42 trades PF 1.31, BTC 45
+trades PF 1.93).
+
+Franjas usadas (partición completa de 24hs, ajustadas ligeramente de las
+propuestas por el usuario a los cortes estándar de sesión): Asiática
+(18-03 ART), Europea (03-09 ART), Americana/solapamiento (09-13 ART),
+Tarde EEUU (13-18 ART).
+
+**Resultado - Oro:**
+
+| Franja | n | Win rate | PF | 1ra mitad | 2da mitad |
+|---|---|---|---|---|---|
+| Asiática | 12 | 41.7% | 2.85 | n=6, PF 18.99 | n=6, PF **0.00** |
+| **Europea** | **11** | **9.1%** | **0.19** | n=5, PF **0.00** | n=6, PF **0.44** |
+| Americana/solap. | 6 | 50.0% | 2.61 | n=3 (muy chico) | n=3 (muy chico) |
+| Tarde EEUU | 13 | 38.5% | 1.27 | n=6, PF 1.25 | n=7, PF 1.29 |
+
+**Resultado - BTC:**
+
+| Franja | n | Win rate | PF | 1ra mitad | 2da mitad |
+|---|---|---|---|---|---|
+| Asiática | 17 | 47.1% | 2.25 | n=8, PF 0.60 | n=9, PF 6.10 |
+| Europea | 7 | 42.9% | 4.45 | n=3 (muy chico) | n=4 (muy chico) |
+| Americana/solap. | 8 | 62.5% | 3.04 | n=4, PF 2.07 | n=4, PF 4.08 |
+| **Tarde EEUU** | **13** | **30.8%** | **0.59** | n=6, PF 1.33 | n=7, PF **0.20** |
+
+**Ningún patrón es lo bastante limpio como para proponer un filtro
+formal todavía**, pero dos franjas se destacan por motivos distintos:
+
+- **Oro, sesión Europea (03-09 ART)**: la más consistente de las 8
+  combinaciones - profit factor por debajo de 1.0 en el total (0.19) Y en
+  las dos mitades por separado (0.00 y 0.44), sin el efecto de racha
+  puntual que se ve en otras franjas (ver Asiática abajo). Es la única
+  franja, en cualquiera de los dos instrumentos, donde ninguna mitad
+  supera el desempeño global de v2 en Oro. Muestra chica (11 trades, 5-6
+  por mitad) - no alcanza el estándar del proyecto (25-30+ para concluir
+  con confianza, como con RSI 35/65 o el straddle semanal), pero la
+  dirección es inusualmente consistente para ese tamaño de muestra.
+- **BTC, Tarde EEUU (13-18 ART)**: la franja de peor desempeño total en
+  BTC (PF 0.59, por debajo del benchmark general de 1.93 por un margen
+  grande), aunque acá el split de mitades SÍ es inconsistente (1.33 luego
+  0.20) - no se puede descartar que sea una racha de la segunda mitad del
+  período nada más, mismo patrón de "régimen que cambia" ya visto en el
+  diagnóstico de Oro entre mitades.
+- **El resto de las franjas** (Asiática en ambos instrumentos, Americana
+  en ambos, Europea en BTC) muestran profit factor alto en el total, pero
+  con splits de mitades que se dan vuelta por completo (ej. Asiática BTC:
+  0.60→6.10) o son demasiado chicos (n=3-4 por mitad) para leerse como
+  algo más que ruido - el mismo patrón que ya llevó a descartar conclusiones
+  prematuras en otros análisis de este proyecto (straddle semanal con
+  n=12, filtro de tendencia 4H).
+
+**No se propone ningún filtro todavía** - la instrucción explícita del
+usuario fue avisar si alguna franja mostraba una diferencia marcada y con
+muestra decente antes de considerar un filtro formal. La sesión Europea en
+Oro es la que más se acerca (consistencia perfecta entre mitades, aunque
+con muestra chica); Tarde EEUU en BTC tiene peor número total pero sin esa
+consistencia. Ninguna de las dos llega al estándar de muestra que este
+proyecto exige antes de aprobar un cambio (RSI 35/65 y el straddle semanal
+tuvieron 55-118 señales crudas de respaldo, acá son 6-17 trades por
+franja). Sin flag de producción, sin script comiteado - si se quiere
+profundizar, el camino sería juntar más historial (mismo patrón que M30 y
+Oro 4H) antes de evaluar un filtro horario formal, empezando por Oro en la
+sesión Europea si el usuario quiere priorizar una.
 
 ## Cómo correr cosas
 
