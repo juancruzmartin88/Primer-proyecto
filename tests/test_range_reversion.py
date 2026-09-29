@@ -137,6 +137,26 @@ def test_min_range_atr_mult_blocks_a_range_too_narrow_relative_to_atr():
     assert strict.generate_signal(data) == Signal.HOLD
 
 
+def test_level_proximity_pct_of_range_overrides_the_atr_based_default():
+    # Piso real en 99.15 (vela previa a la de rechazo), vela de rechazo
+    # (martillo) con low=99.4 - a 15.15% del ancho del rango (1.65) de
+    # distancia. Con 30% de tolerancia pasa, con 5% no.
+    rows = _flat_padding(50)
+    tail_closes = [100.6, 100.4, 100.2, 100.0, 99.2, 99.5, 99.6, 99.75]
+    for i, c in enumerate(tail_closes):
+        if i < len(tail_closes) - 1:
+            rows.append(dict(open=c + 0.15, high=c + 0.2, low=c - 0.05, close=c))
+        else:
+            rows.append(dict(open=99.69, high=99.72, low=99.4, close=99.70))
+    data = _candles(rows)
+
+    loose = _make(level_proximity_pct_of_range=0.30)
+    strict = _make(level_proximity_pct_of_range=0.05)
+
+    assert loose.generate_signal(data) == Signal.BUY
+    assert strict.generate_signal(data) == Signal.HOLD
+
+
 def test_sl_price_raises_when_requested_signal_does_not_match_setup():
     strategy = _make()
     data = _candles(_buy_setup_rows())

@@ -82,6 +82,7 @@ class RangeReversionStrategy(Strategy):
         rsi_sell_level: float = 60.0,
         rejection_wick_ratio: float = 1.5,
         level_proximity_atr_mult: float = 0.5,
+        level_proximity_pct_of_range: float | None = None,
         sl_atr_margin_mult: float = 0.5,
         min_range_atr_mult: float = 2.0,
     ) -> None:
@@ -96,6 +97,11 @@ class RangeReversionStrategy(Strategy):
         self.rsi_sell_level = rsi_sell_level
         self.rejection_wick_ratio = rejection_wick_ratio
         self.level_proximity_atr_mult = level_proximity_atr_mult
+        # Si se especifica, la proximidad al piso/techo se mide como % del
+        # ANCHO DEL RANGO en vez de multiplos de ATR (28/09/2026, a pedido
+        # del usuario) - permite aflojar el filtro sin acoplarlo al ATR,
+        # que ya interviene en min_range_atr_mult y en el margen del SL.
+        self.level_proximity_pct_of_range = level_proximity_pct_of_range
         self.sl_atr_margin_mult = sl_atr_margin_mult
         self.min_range_atr_mult = min_range_atr_mult
         self.min_history = 3 * max(adx_period, rsi_period, atr_period) + regime_confirmation_candles
@@ -174,7 +180,10 @@ class RangeReversionStrategy(Strategy):
             return None
 
         rejection = data.iloc[idx]
-        proximity = self.level_proximity_atr_mult * current_atr
+        if self.level_proximity_pct_of_range is not None:
+            proximity = self.level_proximity_pct_of_range * (range_ceiling - range_floor)
+        else:
+            proximity = self.level_proximity_atr_mult * current_atr
         entry_price = rejection["close"]
 
         if (
