@@ -2207,6 +2207,99 @@ Oro/BTC funcionan igual acá.
     que para v2, repensar el criterio de entrada específico para este
     tipo de instrumento antes de asumir que los parámetros de Oro/BTC
     funcionan igual acá.
+25. Tendencia con pullback a EMA 21 en BTC (recalibrado) - **rechazada
+    (29/09/2026)**. Ver "Tendencia con pullback a EMA 21 en BTC
+    (recalibrado)" más arriba. Hipótesis a probar: la EMA 50 podía ser
+    demasiado lenta para la volatilidad de BTC y confundir cambios de
+    tendencia genuinos con simples retrocesos - se probó EMA 21 (más
+    reactiva), mismo diseño en todo lo demás. No se confirma: PF mejora
+    apenas (0.98→1.01 realista, 0.79→0.88 exploratorio, sin significado
+    práctico) y el drawdown empeora bastante (16.7%→24.6% realista,
+    78.5%→97.3% exploratorio) - sigue sin acercarse a 1.5 en ninguna de
+    las 4 mitades, con muestra amplia (97-99 trades). La velocidad de la
+    EMA no era el cuello de botella; el problema es más de fondo en la
+    lógica de pullback-a-tendencia aplicada a BTC. Concepto cerrado en
+    BTC salvo un cambio de diseño más profundo (por ejemplo agregar una
+    vela de confirmación, que `TrendPullbackStrategy` nunca exigió por
+    diseño) - no seguir ajustando el período de la EMA. Sigue exclusiva
+    de Oro como segunda línea manual. Sin flag de producción.
+
+## Tendencia con pullback a EMA 21 en BTC (recalibrado, 29/09/2026) — RECHAZADA
+
+El usuario pidió reconsiderar v3 en BTC antes de cerrar el concepto del
+todo: la hipótesis de la EMA 50 (rechazada el 29/09, PF 0.98 realista) es
+que BTC se mueve mucho más rápido que Oro, con reversiones más bruscas -
+una media de 50 períodos podría ser demasiado lenta y estar interpretando
+cambios de tendencia genuinos como simples retrocesos. Se pidió repetir
+exactamente el mismo diseño pero con EMA(21) en vez de EMA(50), sin tocar
+ningún otro parámetro, comparando tanto contra el benchmark de v2 en BTC
+(PF 1.77 realista) como contra el resultado ya conocido de v3-EMA50 en BTC
+(PF 0.98 realista / 0.79 exploratorio) - para distinguir si el problema es
+la velocidad de la media o algo más de fondo en la lógica de pullback.
+
+Se agregó `--ema-period` a `scripts/backtest_trend_pullback.py` (default
+50, sin cambiar el comportamiento de las corridas anteriores) para poder
+pasar el período sin tocar `TrendPullbackStrategy` (que ya soportaba
+`ema_period` como parámetro del constructor desde que se escribió para
+Oro - no hacía falta ningún cambio ahí). Mismo `data/btcusd_h1_raw.csv`,
+mismo período de 7 meses, capital real $707.24.
+
+**Benchmark v2 en BTC (referencia, recalculado en la misma corrida):**
+realista 60 trades, WR 46.7%, PF 1.77; exploratorio 45 trades, WR 44.4%,
+PF 1.93.
+
+**Resultado - tendencia-pullback en BTC, EMA 21 vs EMA 50 (referencia):**
+
+| | v2 (benchmark) | v3 EMA 50 (29/09) | v3 EMA 21 (recalibrado) |
+|---|---|---|---|
+| Trades (realista) | 60 | 76 | 97 |
+| Win rate (realista) | 46.7% | 32.9% | 33.0% |
+| PF realista | **1.77** | 0.98 | **1.01** |
+| Drawdown realista | 7.5% | 16.7% | 24.6% |
+| PF 1ra/2da mitad (realista) | 1.40/2.12 | 0.81/1.17 | 0.73/1.34 |
+| PF exploratorio | 1.93 | 0.79 | **0.88** |
+| Drawdown exploratorio | 24.7% | 78.5% | **97.3%** |
+
+**La EMA más corta no arregla el problema - lo cambia muy poco, y en
+drawdown lo empeora.** El profit factor mejora apenas (0.98→1.01 realista,
+0.79→0.88 exploratorio), una diferencia mínima y sin ningún significado
+práctico - sigue siendo un sistema perdedor o, en el mejor de los casos,
+empatado (PF≈1.0 no genera ganancia real después de costos). El drawdown,
+en cambio, empeora bastante: 16.7%→24.6% en vista realista y 78.5%→97.3%
+en exploratoria (la EMA reactiva genera más señales - 76→97 trades - pero
+entra y sale con más ruido, ampliando las rachas perdedoras en vez de
+acotarlas). Ninguna de las 4 mitades (2 vistas x 2 mitades) se acerca al
+umbral de 1.5; la muestra es amplia (97-99 trades), así que el resultado
+no es ruido de muestra chica.
+
+**Conclusión sobre la hipótesis planteada**: la EMA de 50 no era el cuello
+de botella. Acortar la media a 21 períodos sube algo la frecuencia de
+señales pero no mejora la calidad de forma relevante y empeora el
+drawdown - la causa de fondo no es la velocidad de la media, es algo más
+estructural en la lógica de pullback-a-tendencia aplicada a la dinámica de
+BTC (reversiones más violentas que hacen que un "retroceso limpio" sea un
+setup menos confiable que en Oro, sea cual sea el período de la EMA usada
+para definir la tendencia) - la misma hipótesis sin verificar que había
+quedado planteada el 29/09/2026 al rechazar la versión con EMA 50, ahora
+con un dato adicional a favor: si el problema fuera solo la velocidad de
+la media, acortarla debería haber mejorado las cosas de forma clara, y no
+lo hizo.
+
+**Solapamiento con v2**: 3 de 146 señales crudas coincidieron con v2 en la
+misma vela (2.1%), las 3 contradictorias - mismo patrón sistemático ya
+visto en el resto del proyecto (Oro, BTC-EMA50, EUR/USD).
+
+**Decisión: NO se activa v3 en BTC, ni con EMA 21 ni con EMA 50.** Con dos
+períodos de EMA distintos fallando por el mismo margen amplio, no tiene
+sentido seguir ajustando el período de la media - el concepto de
+tendencia-pullback en BTC queda cerrado salvo que se quiera repensar algo
+más de fondo del diseño (por ejemplo, exigir una vela de confirmación
+como sí tiene v2, dado que `TrendPullbackStrategy` nunca la exigió por
+diseño - podría ser la próxima variable a probar si se retoma, no el
+período de la EMA). Sigue siendo exclusiva de Oro como segunda línea
+manual. Sin flag de producción - no hace falta código nuevo para
+reconsiderarlo, `TrendPullbackStrategy(symbol="BTCUSDm", ema_period=N)`
+ya es instanciable tal cual con cualquier período.
 
 ## Cómo correr cosas
 
