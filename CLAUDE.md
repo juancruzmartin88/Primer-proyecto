@@ -1668,7 +1668,7 @@ extremo opuesto del rango en vez del punto medio (la única variante del
 diseño original que queda sin evaluar) - un cambio de diseño distinto, no
 un aflojamiento de filtros. Sin flag de producción.
 
-## Tendencia con pullback a EMA en Oro (28-29/09/2026) — resultado fuerte en vista realista, con advertencia importante
+## Tendencia con pullback a EMA en Oro (28-29/09/2026) — ACEPTADA, segunda línea manual en paralelo a v2
 
 Hipótesis nueva pedida por el usuario, sistema SEPARADO de la Metodología
 v2: en vez de reversión (entrar contra un extremo de RSI), seguimiento de
@@ -1717,8 +1717,10 @@ está).
 **Solapamiento con v2**: 4 de 116 señales coinciden en la misma vela
 (3.4%), y las 4 son contradictorias (ninguna coincide en la misma
 dirección) - esperable, dado que una es de reversión y la otra de
-tendencia. Poco frecuente, pero sin regla de desempate todavía si se
-llegaran a correr las dos en paralelo.
+tendencia. Poco frecuente, pero necesitaba una regla de desempate antes
+de operar las dos en paralelo - **regla confirmada por el usuario:
+si en la misma vela hay señal de v2 y de tendencia-pullback en
+direcciones opuestas, no se opera ninguna de las dos.**
 
 **Advertencia importante - la vista exploratoria diverge fuerte:**
 
@@ -1749,12 +1751,25 @@ señal "cruda" (sin el filtro de capital) no es tan fuerte por sí sola
 (PF 1.31, primera mitad perdedora) - **el filtro de capital es parte real
 del motor de esta ventaja, no solo un detalle de sizing aparte.**
 
-**Sin decisión de activar todavía** - resultado presentado al usuario con
-la advertencia completa, pendiente de que decida cómo seguir (activar,
-dejar sin flag para más validación, o pedir un ajuste). Mismo disclaimer
-de siempre sobre volumen: estos CSV (Twelve Data) no traen columna de
-volumen, así que este backtest no ejercita ningún chequeo de volumen que
-se le quisiera agregar a futuro. Sin flag de producción por ahora.
+**Decisión: ACEPTADA (29/09/2026), como segunda línea de análisis manual**,
+en paralelo a la Metodología v2 - mismo modo de operación que v2 hoy (el
+usuario la corre manualmente en el chat, comparando contra el gráfico
+real antes de operar), no como una feature automática del bot. Por eso
+**no hace falta ningún cambio en el bot ni un flag `ENABLE_*`** en
+`src/config.py`/`.env` - `TrendPullbackStrategy` ya está lista para
+usarse tal cual desde `src/strategies/trend_pullback.py`, no como parte
+del loop de `src/bot.py`.
+
+**Plan de validación en vivo (confirmado por el usuario, sin acción de
+código de mi parte)**: seguimiento cercano de las primeras 10-15
+operaciones reales de esta línea, comparando win rate y profit factor en
+vivo contra el backtest (WR 61.3%, PF 3.40 en vista realista) antes de
+confiarle más peso. Es control manual del usuario a medida que opera, no
+un pendiente técnico.
+
+Mismo disclaimer de siempre sobre volumen: estos CSV (Twelve Data) no
+traen columna de volumen, así que este backtest no ejercita ningún
+chequeo de volumen que se le quisiera agregar a futuro.
 
 ## Próximos pasos pendientes
 
@@ -1943,20 +1958,23 @@ se le quisiera agregar a futuro. Sin flag de producción por ahora.
     seguir aflojando régimen/RSI/proximidad (ya probado, empeora) - la
     única variante de diseño sin evaluar es TP en el extremo opuesto del
     rango en vez del punto medio.
-21. Tendencia con pullback a EMA en Oro - **resultado fuerte, pendiente de
-    decisión del usuario (28-29/09/2026)**. Ver "Tendencia con pullback a
-    EMA en Oro" más arriba. Vista realista: 31 trades ejecutables (vs 2 de
-    v2), PF 3.40, consistente en las dos mitades (4.47/2.83) - el
-    resultado más sólido en vista realista de todo el proyecto sobre Oro.
-    PERO vista exploratoria diverge (PF 1.31, 1ra mitad perdedora 0.90) -
-    investigado y explicado: las operaciones de SL ancho del tramo más
-    volátil del período (24/02-09/03) pierden y quedan bloqueadas por el
-    filtro de capital, que termina filtrando por calidad ademas de riesgo
-    en esta estrategia en particular (pullback angosto = setup más sano).
-    Solapamiento con v2: 3.4% de las señales (4 de 116), todas
-    contradictorias, sin regla de desempate definida todavía. Sin flag de
-    producción - pendiente de que el usuario decida cómo seguir (activar,
-    dejar sin flag, pedir más validación).
+21. Tendencia con pullback a EMA en Oro - **ACEPTADA como segunda línea
+    manual (29/09/2026)**. Ver "Tendencia con pullback a EMA en Oro" más
+    arriba. Vista realista: 31 trades ejecutables (vs 2 de v2), PF 3.40,
+    consistente en las dos mitades (4.47/2.83) - el resultado más sólido
+    en vista realista de todo el proyecto sobre Oro. Vista exploratoria
+    diverge (PF 1.31, 1ra mitad perdedora 0.90), investigado y explicado:
+    las operaciones de SL ancho del tramo más volátil del período pierden
+    y quedan bloqueadas por el filtro de capital, que termina filtrando
+    por calidad además de riesgo en esta estrategia (pullback angosto =
+    setup más sano). Solapamiento con v2: 3.4% de las señales (4 de 116),
+    todas contradictorias - **regla de desempate confirmada: si coinciden
+    en direcciones opuestas en la misma vela, no se opera ninguna**. Se
+    opera 100% manual en el chat, igual que v2 - no se tocó `src/bot.py`
+    ni se agregó ningún flag `ENABLE_*`, `TrendPullbackStrategy` no forma
+    parte del loop automático. Seguimiento en vivo de las primeras 10-15
+    operaciones reales (comparando WR/PF contra el backtest) a cargo del
+    usuario, no es un pendiente técnico.
 
 ## Cómo correr cosas
 
