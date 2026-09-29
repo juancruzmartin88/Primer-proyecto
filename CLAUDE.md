@@ -2324,6 +2324,22 @@ Oro/BTC funcionan igual acá.
     menos confianza hasta juntar más historial real (hay 21 meses
     disponibles en `data/xauusd_h1_full.csv`, sólo se usaron 7 acá para
     comparar directo contra el número aprobado). Sin cambios de código.
+31. Verificación de v2 (BTC y Oro) con datos reales de MT5 - **BTC se
+    sostiene bien, Oro sin cambio operativo (30/09/2026)**. Ver
+    "Verificación de v2 (BTC y Oro) con datos reales de MT5" más arriba.
+    El usuario preguntó con qué datos se validó v2 originalmente
+    (confirmado: Twelve Data, igual que todo el proyecto) y pidió
+    reconfirmar dado el hallazgo de v3-Oro. No hizo falta correr nada
+    nuevo - los benchmarks de v2 con MT5 real ya habían salido como
+    subproducto de los backtests de hoy (ruptura de volumen en BTC,
+    verificación de v3 en Oro). BTC (la parte que opera activamente):
+    PF 2.91/27 trades en MT5 real vs 1.77/60 en Twelve Data - MEJOR con
+    datos reales, no peor, con la consistencia entre mitades más alta
+    del proyecto (2.96/2.88). Oro (ya casi inactiva por el filtro de
+    capital): cae de 2 a 0 trades ejecutables, pero no cambia nada
+    operativamente porque ya estaba dormida. El riesgo real del día
+    sigue siendo específicamente v3 en Oro (ítem 30), no v2. Sin cambios
+    de código.
 
 ## Tendencia con pullback a EMA 21 en BTC (recalibrado, 29/09/2026) — RECHAZADA
 
@@ -2828,6 +2844,66 @@ comparar manzanas con manzanas - o acumulando las propias operaciones
 reales del usuario). Sin cambios de código - reuso total de
 `TrendPullbackStrategy`/`scripts/backtest_trend_pullback.py` ya
 existentes, solo datos nuevos.
+
+## Verificación de v2 (BTC y Oro) con datos reales de MT5 (30/09/2026) — BTC se sostiene bien, Oro sin cambio operativo
+
+El usuario preguntó con qué fuente de datos se había validado originalmente
+v2 (el backtest del 14/09/2026, antes de pasar a cuenta real, y el del
+20/09/2026 que fijó los parámetros vigentes RSI 35/65) - **confirmado:
+Twelve Data** (`data/xauusd_h1_raw.csv`/`data/btcusd_h1_raw.csv`), igual
+que todo el resto del proyecto hasta hoy. Dado el hallazgo del día (v3 en
+Oro no sostiene su ventaja de ejecución con MT5 real, ver sección de
+arriba), preguntó si había que re-confirmar v2 - es la estrategia que
+opera automáticamente con capital real ahora mismo.
+
+**No hizo falta correr nada nuevo**: los dos backtests de verificación de
+hoy (ruptura de volumen en BTC, verificación de v3 en Oro) ya habían
+corrido el benchmark de v2 - con los parámetros de producción vigentes,
+RSI 35/65 - sobre datos reales de MT5, mismo período de 7 meses, mismo
+capital ($707.24), como parte de su propio protocolo. Solo hizo falta
+sintetizar esos resultados ya obtenidos.
+
+**BTC (la parte de v2 que sí opera activamente en el bot):**
+
+| | Twelve Data (referencia vigente) | MT5 real (`data/btcusd_h1_volume.csv`) |
+|---|---|---|
+| Trades (realista) | 60 | **27** |
+| Win rate | 46.7% | **59.3%** |
+| Profit factor | 1.77 | **2.91** |
+| Drawdown | 7.5% | **5.7%** |
+| PF 1ra/2da mitad | 1.40 / 2.12 | **2.96 / 2.88** |
+
+**Tranquilizador, en la dirección opuesta a lo que pasó con v3-Oro**: el
+profit factor con datos reales es más alto que con Twelve Data (no más
+bajo), el drawdown es menor, y la consistencia entre mitades es la más
+alta vista en todo el proyecto (2.96 vs 2.88 - prácticamente idéntico).
+La muestra es menor (27 vs 60 trades) - no es una validación exhaustiva
+por sí sola, pero no hay ninguna señal de alarma como la de v3.
+
+**Oro (la parte de v2 que casi no ejecuta, por el filtro de capital de la
+sección 3.2):**
+
+| | Twelve Data (referencia) | MT5 real (`data/xauusd_h1_mt5_reference_period.csv`) |
+|---|---|---|
+| Trades (realista) | 2 | **0** |
+| Trades (exploratorio) | 42 | 39 |
+| PF (exploratorio) | 1.31 | 1.51 |
+| Split exploratorio 1ra/2da | 1.99 / 0.59 | 2.05 / 0.99 |
+
+Cae de 2 a 0 trades ejecutables, pero **no cambia nada operativamente** -
+Oro-v2 ya estaba prácticamente dormido con Twelve Data (el filtro de
+capital de la sección 3.2 lo diseñó para eso mientras el capital sea
+este). No es un riesgo nuevo para el capital real, a diferencia de v3 en
+Oro, que sí estaba tomando operaciones reales basado en un número que no
+se sostiene.
+
+**Conclusión**: la estrategia que efectivamente mueve dinero real de forma
+automática (v2-BTC) se sostiene bien con datos reales de MT5, incluso
+mejor que con Twelve Data - no hace falta ninguna acción correctiva. La
+parte de v2 en Oro no cambia el panorama operativo porque ya estaba
+inactiva. El hallazgo de riesgo real del día sigue siendo específicamente
+v3 en Oro (sección de arriba), no v2. Sin cambios de código - síntesis de
+resultados ya calculados en esta misma sesión.
 
 ## Cómo correr cosas
 
