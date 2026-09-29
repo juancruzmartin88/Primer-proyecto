@@ -2390,6 +2390,28 @@ Oro/BTC funcionan igual acá.
     completo) - si se retoman, recalcular primero contra MT5 real antes
     que las demás líneas. No se corrió ningún backtest nuevo en esta
     auditoría, tal como pidió el usuario.
+36. Ruptura de nivel estructural con volumen en BTC - **RECHAZADA
+    (29/09/2026), muestra grande y confiable**. Ver "Ruptura de nivel
+    estructural con volumen en BTC" más arriba. Diseño confirmado con el
+    usuario antes de implementar (vela de confirmación exigida). Con
+    volumen>=1.3x (elegido por barrido fuera de muestra): 149 trades
+    realista, PF 1.17, DD 29.0%, split 1.28/1.08; 141 trades exploratorio,
+    PF 1.44, split 1.59/1.29 - no llega a 1.5 en ninguna vista ni mitad,
+    con la muestra más grande de cualquier intento de ruptura de este
+    proyecto (sin ambigüedad de "falta muestra"). Se detectó y corrigió un
+    bug real en el camino: `min_history` sumaba de más el lookback de
+    fractales (200 velas), dejándolo por encima del `window_size=200` que
+    usa tanto el backtest como el bot en vivo (`MT5Client.get_rates(count=200)`)
+    - la estrategia no podía generar señales ni en backtest ni en
+    producción real hasta corregirlo (commit separado, 161 tests
+    siguen pasando). Solapamiento con v2: 0% (0 de 341 señales), la
+    familia de diseño más independiente de v2 evaluada en el proyecto -
+    irrelevante dado que no aprueba. Con esto, las dos familias
+    alternativas a v2 exploradas en profundidad en BTC (tendencia y
+    ruptura) quedan cerradas por ahora. Sin flag de producción,
+    `LevelBreakoutStrategy` (`src/strategies/level_breakout.py`) queda
+    reusable tal cual para otro instrumento (ej. Oro, sobre MT5 real) o
+    diseño de salida.
 
 ## Tendencia con pullback a EMA 21 en BTC (recalibrado, 29/09/2026) — RECHAZADA
 
@@ -3142,6 +3164,118 @@ de riesgo 3% y los montos de capital del filtro de ATR (ambos sobre MT5
 real, ya que 21 meses de `data/xauusd_h1_full.csv` están disponibles),
 recién después - y solo si hace falta - revisar rango/tendencia 4H/swing
 4H.
+
+## Ruptura de nivel estructural con volumen en BTC (29/09/2026) — RECHAZADA
+
+Cuarto diseño evaluado sobre BTC tras agotar tendencia-pullback a EMA (3
+intentos rechazados) y quedar sin muestra suficiente con la ruptura de
+CONSOLIDACIÓN con volumen (`volume_breakout.py`, el mismo día - 0-7
+señales crudas según N/umbral). Diseño distinto pedido por el usuario:
+ancla la ruptura a un **nivel estructural real** (manual ∪ fractal, la
+misma fuente que usan v2/v3 - `get_levels_for_symbol`) en vez de a un
+rango calculado sobre el ATR, con vela de confirmación exigida (decisión
+tomada explícitamente por el usuario antes de escribir código, no
+asumida - ver más abajo).
+
+**Diseño confirmado con el usuario antes de implementar (tal como pidió,
+"antes de correr cualquier backtest, definir el diseño concreto")**:
+
+1. Nivel: el más cercano por encima/debajo del cierre de la vela previa a
+   la de ruptura (calculado con datos ANTERIORES a esa vela, sin
+   lookahead).
+2. Ruptura: vela que cierra por fuera del nivel con cuerpo real dominante
+   (`min_body_ratio`, mismo criterio que el resto de las rupturas de este
+   proyecto).
+3. Volumen: volumen de la vela de ruptura >= umbral x promedio de 20
+   velas - único eje de búsqueda, mismo protocolo de selección fuera de
+   muestra que `backtest_volume_breakout.py`/`backtest_regime_filter.py`
+   (barrido solo sobre la 1ra mitad de los trades, validación en la 2da).
+4. **Confirmación exigida** (a diferencia de `volume_breakout.py`, que
+   entraba en la propia vela de ruptura): la vela SIGUIENTE tiene que
+   seguir cerrando del lado roto del nivel. Se le preguntó explícitamente
+   al usuario esta bifurcación de diseño en vez de asumirla - eligió la
+   variante conservadora, dado que sacar la confirmación ya había
+   fallado en la Metodología v2 "pura" (28/09) y en la ruptura de
+   consolidación de septiembre.
+5. SL detrás del nivel roto (+ margen de ATR). TP: mecanismo ya validado
+   de v2/v3 (próximo nivel estructural con fallback a múltiplo de riesgo
+   fijo).
+
+Implementado en `src/strategies/level_breakout.py`
+(`LevelBreakoutStrategy`) - 8 tests en `tests/test_level_breakout.py`,
+verificados numéricamente. `scripts/backtest_level_breakout.py` corre el
+mismo protocolo de selección fuera de muestra, con el piso de muestra
+fijado desde el arranque (`MIN_TRAIN_SAMPLE=8`, `MIN_IDEAL_SAMPLE=25`)
+para no repetir el problema de `volume_breakout.py`. Mismo dataset con
+volumen real de MT5 ya usado ese día (`data/btcusd_h1_volume.csv`).
+
+**Bug real encontrado y corregido antes de reportar cualquier resultado**:
+la primera corrida dio 0 trades en las 3 combinaciones de umbral de
+volumen pese a que un diagnóstico ad hoc mostró 330 señales crudas
+válidas - `min_history` sumaba el lookback interno de deteccion de
+fractales (200 velas) sin necesidad (`detect_fractal_levels` ya usa
+`data.tail(200)` y funciona bien con menos filas, mismo patrón que
+`StructuralPullbackStrategy.min_history`, que tampoco depende de ese
+lookback). Con ese +200, `min_history` quedaba en ~225 - por ENCIMA del
+`window_size=200` que usa `run_backtest` por defecto, el mismo valor que
+`MT5Client.get_rates(count=200)` entrega en producción real: la estrategia
+no solo fallaba en el backtest, **nunca hubiera podido generar una señal
+corriendo en vivo tampoco** (nunca recibe más de 200 velas por vuelta).
+Corregido a `max(atr_period, volume_ma_period) + 10` (≈30 por defecto) -
+commit separado, 161 tests siguen pasando. Vale la pena releer este
+párrafo si en el futuro una estrategia nueva de este proyecto da 0 trades
+en backtest pese a que el diagnóstico manual encuentra señales: revisar
+primero si `min_history` quedó por encima de 200 antes de sospechar de la
+lógica de la señal.
+
+**Resultado (con el fix aplicado, volumen>=1.3x elegido por el barrido de
+entrenamiento - PF entrenamiento 1.59 sobre 70 trades, 141/119/57 señales
+según 1.3x/1.5x/2.0x, la muestra más sana de cualquier intento de ruptura
+de este proyecto):**
+
+| | v2 (benchmark, mismo feed) | Ruptura de nivel con volumen |
+|---|---|---|
+| Trades (realista) | 27 | **149** |
+| Win rate (realista) | 59.3% | 38.9% |
+| Profit factor (realista) | 2.91 | **1.17** |
+| Drawdown (realista) | 5.7% | **29.0%** |
+| PF 1ra/2da mitad (realista) | 2.96 / 2.88 | **1.28 / 1.08** |
+| Trades (exploratorio) | — | 141 |
+| Profit factor (exploratorio) | — | **1.44** |
+| PF 1ra/2da mitad (exploratorio) | — | **1.59 / 1.29** |
+| Drawdown (exploratorio) | — | 24.9% |
+
+**No llega al umbral de aprobación (PF>1.5) en ninguna vista, con muestra
+grande y confiable (149/141 trades, muy por encima del piso ideal de 25)**
+- a diferencia de otros rechazos de este proyecto con muestra chica (rango
+en Oro, swing 4H), acá no hay ambigüedad de "faltan datos": el resultado
+es consistente y por debajo del umbral en las dos vistas y en las cuatro
+mitades. La selección de umbral fuera de muestra confirma lo mismo desde
+otro ángulo: el PF de entrenamiento (1.59, sobre la 1ra mitad) no se
+sostiene en la validación (2da mitad completa: 1.08 realista, 1.29
+exploratorio) - la caída entre entrenamiento y validación es exactamente
+el patrón de sobreajuste que el protocolo está diseñado para detectar. No
+es un rechazo catastrófico (PF por encima de 1.0 en las dos vistas, no es
+un sistema perdedor), pero tampoco cerca de aprobar.
+
+**Solapamiento con v2: 0 de 341 señales coincidieron en la misma vela
+(0%)** - a diferencia del resto de las estrategias alternativas evaluadas
+en este proyecto (tendencia-pullback, rango en Oro), que siempre tuvieron
+al menos alguna coincidencia (2-4%), acá el mecanismo de entrada (ruptura
+de nivel vs. reversión sobre RSI extremo) resulta completamente
+independiente en esta muestra - no hay ninguna contradicción que resolver
+si en algún momento se operaran en paralelo, aunque la pregunta es
+moot dado que esta línea no aprueba.
+
+**Decisión: NO se activa.** Cuarto intento sobre BTC después de agotar
+tendencia-pullback a EMA (3 variantes) - con este resultado, las dos
+familias de diseño alternativas a v2 evaluadas en profundidad sobre BTC
+(seguimiento de tendencia y ruptura, esta última en dos variantes:
+consolidación sin muestra suficiente, nivel estructural con muestra
+suficiente pero PF bajo el umbral) quedan cerradas por ahora. Sin flag de
+producción - `LevelBreakoutStrategy` queda reusable tal cual si se quiere
+probar en el futuro (por ejemplo, en Oro, sobre MT5 real per la política
+de datos vigente) o con otro diseño de SL/TP.
 
 ## Cómo correr cosas
 
