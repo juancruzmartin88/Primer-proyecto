@@ -71,6 +71,7 @@ def main() -> None:
     parser.add_argument("--risk-per-trade-pct", type=float, default=2.0)
     parser.add_argument("--pip-size", type=float, default=0.01)
     parser.add_argument("--pip-value-per-lot", type=float, default=1.0)
+    parser.add_argument("--ema-period", type=int, default=50)
     args = parser.parse_args()
 
     logger.remove()
@@ -79,7 +80,9 @@ def main() -> None:
     print(f"{args.symbol}: {len(data)} velas, {data['time'].iloc[0]} -> {data['time'].iloc[-1]}\n")
 
     def make_trend_strategy():
-        return TrendPullbackStrategy(symbol=args.symbol, timeframe="H1", levels_path=args.levels_path)
+        return TrendPullbackStrategy(
+            symbol=args.symbol, timeframe="H1", levels_path=args.levels_path, ema_period=args.ema_period
+        )
 
     def make_v2_strategy():
         return StructuralPullbackStrategy(symbol=args.symbol, timeframe="H1", levels_path=args.levels_path)
