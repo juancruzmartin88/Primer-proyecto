@@ -2239,6 +2239,26 @@ Oro/BTC funcionan igual acá.
     historial (mismo patrón que M30/Oro 4H) antes de evaluar esto en
     serio, empezando por Oro en la sesión Europea si se quiere priorizar.
     Sin flag de producción, análisis ad hoc no comiteado.
+27. Tendencia con pullback a EMA en BTC, con vela de confirmación extra -
+    **rechazada (30/09/2026)**. Ver "Tendencia con pullback a EMA en BTC,
+    con vela de confirmación extra" más arriba. Tercer intento de v3 en
+    BTC (después de EMA 50 y EMA 21, ambos rechazados): se agregó la
+    misma vela de confirmación que exige v2, con la hipótesis de que
+    podría sostener el profit factor igual que lo hace en v2 (sacarla de
+    v2 lo hunde de 1.77 a 0.91). No se confirma - PF prácticamente igual
+    o peor (0.98→0.94 realista, 0.79→0.73 exploratorio), drawdown
+    exploratorio empeora (78.5%→89.0%, el peor de las tres variantes). La
+    muestra bajó como se esperaba (señales 116→63, -46%) pero sigue siendo
+    razonable (46 trades realista). A diferencia de v2, en v3 la vela de
+    confirmación no sostiene nada - sugiere que el problema de v3 en BTC
+    no es de timing/confirmación sino del criterio de entrada en sí
+    (retroceso a EMA + vela de rechazo no describe un setup confiable en
+    BTC). Con tres variantes de v3 rechazadas en BTC, concepto cerrado
+    salvo un replanteo más profundo del diseño. Sin flag de producción,
+    `TrendPullbackConfirmedStrategy`
+    (`src/strategies/trend_pullback_confirmed.py`) queda reusable tal
+    cual, por ejemplo para probarla en Oro (nunca evaluada con
+    confirmación ahí).
 
 ## Tendencia con pullback a EMA 21 en BTC (recalibrado, 29/09/2026) — RECHAZADA
 
@@ -2391,6 +2411,91 @@ franja). Sin flag de producción, sin script comiteado - si se quiere
 profundizar, el camino sería juntar más historial (mismo patrón que M30 y
 Oro 4H) antes de evaluar un filtro horario formal, empezando por Oro en la
 sesión Europea si el usuario quiere priorizar una.
+
+## Tendencia con pullback a EMA en BTC, con vela de confirmación extra (30/09/2026) — RECHAZADA
+
+v3 (tendencia-pullback a EMA) llevaba dos rechazos en BTC (EMA 50 el
+29/09, PF 0.98 realista; EMA 21 el mismo día, PF 1.01) sin que acortar el
+período de la EMA cambiara nada de fondo. Hipótesis del usuario: v3 nunca
+exigió la vela de confirmación que sí tiene v2 (cierre de la vela
+SIGUIENTE a la de rechazo, a favor de la dirección) - y ya se había
+demostrado (`src/strategies/pure_v2.py`, "Metodología v2 'pura' para
+BTC", 28/09/2026) que sacarle esa misma exigencia a v2 hunde su profit
+factor de 1.77 a 0.91. Si la confirmación sostiene el profit factor de v2,
+podría estar sosteniendo también el de v3.
+
+Implementado en `src/strategies/trend_pullback_confirmed.py`
+(`TrendPullbackConfirmedStrategy`, hereda de `TrendPullbackStrategy` y
+solo sobreescribe `_analyze` - la vela de rechazo pasa a ser la
+anteúltima en vez de la última, y la entrada se mueve a la vela
+siguiente, exigiendo que cierre a favor de la tendencia, mismo criterio
+que `StructuralPullbackStrategy._is_confirmation_candle`; todo lo demás -
+EMA, proximidad, geometría de rechazo, SL, TP - queda igual) - 5 tests
+nuevos verificados numéricamente. Se agregó `--require-confirmation` a
+`scripts/backtest_trend_pullback.py` (reusa el mismo script, sin
+duplicar) para correr la comparación. Mismo `data/btcusd_h1_raw.csv`,
+EMA 50 (la versión original - EMA 21 no mostró ventaja), mismo período de
+7 meses, capital real $707.24.
+
+**Benchmark v2 en BTC (referencia, recalculado en la misma corrida):**
+realista 60 trades, WR 46.7%, PF 1.77; exploratorio 45 trades, WR 44.4%,
+PF 1.93.
+
+**Resultado - tendencia-pullback en BTC, con confirmación vs los dos
+intentos previos sin ella:**
+
+| | v2 (benchmark) | v3 EMA 50, sin confirm. | v3 EMA 21, sin confirm. | v3 EMA 50, **con confirm.** |
+|---|---|---|---|---|
+| Señales crudas | 118 | 116 | 146 | **63** |
+| Trades (realista) | 60 | 76 | 97 | **46** |
+| Win rate (realista) | 46.7% | 32.9% | 33.0% | **30.4%** |
+| PF realista | **1.77** | 0.98 | 1.01 | **0.94** |
+| Drawdown realista | 7.5% | 16.7% | 24.6% | **18.6%** |
+| PF 1ra/2da mitad (realista) | 1.40/2.12 | 0.81/1.17 | 0.73/1.34 | **0.78/1.14** |
+| PF exploratorio | 1.93 | 0.79 | 0.88 | **0.73** |
+| Drawdown exploratorio | 24.7% | 78.5% | 97.3% | **89.0%** |
+
+**La confirmación extra no rescata el concepto - lo deja prácticamente
+igual, y en algunos ejes lo empeora.** Como se esperaba, la muestra baja
+bastante con el filtro extra (señales crudas 116→63, -46%; trades
+realista 76→46, -39%) - queda documentado explícitamente, aunque sigue
+siendo una muestra razonable (46 trades realista, comparable a los
+intentos anteriores) para no ser puro ruido. El profit factor no mejora
+en ninguna vista: 0.98→0.94 realista, 0.79→0.73 exploratorio - va en la
+dirección contraria a la hipótesis, no solo "no mejora". El drawdown
+exploratorio, en particular, empeora más todavía: 78.5%→89.0%, el peor de
+las tres variantes de v3 probadas en BTC. Ninguna de las 4 mitades se
+acerca al umbral de 1.5.
+
+**Conclusión sobre la hipótesis planteada**: a diferencia de v2 (donde
+sacar la vela de confirmación sí hundía el profit factor de forma clara,
+1.77→0.91), en v3 agregarla no genera ningún efecto positivo - la
+comparación es limpia porque es el mismo cambio puntual (una vela de
+confirmación extra) aplicado a dos estrategias distintas con resultados
+opuestos. Esto sugiere que el problema de v3 en BTC no es la falta de un
+filtro temporal de "espera a que confirme" (que sí importa en v2), sino
+algo más de fondo en qué cuenta como setup válido: la lógica de
+"retroceso limpio a la EMA + vela de rechazo a favor de tendencia" no
+describe un patrón confiable en BTC, sea cual sea el filtro de timing que
+se le agregue encima (EMA más rápida, vela de confirmación, o ambas). Con
+tres intentos distintos (dos períodos de EMA y ahora un filtro de
+confirmación) fallando por un margen similar, no hay más variables obvias
+de "ajuste fino" que valga la pena seguir probando sin repensar el diseño
+de entrada en sí.
+
+**Solapamiento con v2**: 0 de 63 señales coincidieron con v2 en la misma
+vela (0%) - más bajo que en los intentos sin confirmación (2.1-2.6%),
+esperable porque la muestra total de tendencia-pullback también se redujo
+a la mitad.
+
+**Decisión: NO se activa en BTC.** Con tres variantes de v3 rechazadas
+(EMA 50, EMA 21, EMA 50 + confirmación), el concepto de tendencia-pullback
+en BTC queda cerrado salvo un replanteo más profundo del criterio de
+entrada (no un ajuste de parámetro más) - `TrendPullbackStrategy` sigue
+siendo exclusiva de Oro como segunda línea manual. Sin flag de
+producción, `TrendPullbackConfirmedStrategy` queda reusable tal cual (por
+ejemplo en Oro, donde nunca se probó la variante con confirmación) si se
+quiere revisar en el futuro.
 
 ## Cómo correr cosas
 
