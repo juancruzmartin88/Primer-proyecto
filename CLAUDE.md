@@ -1473,6 +1473,65 @@ mismo espiritu que la decision 10 (el caso puntual de BTC post-Fed se
 interpreto como ruido normal, no como falla estructural). Si el silencio
 se extiende mucho mas alla de este record, ahi si ameritaria revisitarlo.
 
+## Ventana de sincronización RSI-vela de rechazo en BTC (28/09/2026) — RECHAZADA (las 2 variantes)
+
+Surge directo del diagnóstico de la sequía de BTC (sección de arriba): de
+los 33 casos con vela de rechazo geométricamente válida desde el 16/09,
+ninguno coincidió con un RSI genuinamente extremo en el mismo momento - 4
+de ellos porque el RSI había tocado el extremo pero **todavía no había
+girado de vuelta** (`rsi_confirmación` seguía del lado extremo) para el
+momento de la vela de confirmación. Hipótesis: en vez de exigir el cruce
+de vuelta ya confirmado, aceptar la vela de rechazo si aparece dentro de
+`sync_window` velas después del último toque del extremo (nunca antes -
+seguimos sin perseguir impulso).
+
+Implementado en `src/strategies/sync_window.py` (`SyncWindowStrategy`,
+hereda de `StructuralPullbackStrategy` y solo sobreescribe
+`_rsi_extreme_and_turn` - todo lo demás, nivel, vela de rechazo geométrica,
+vela de confirmación, volumen, SL/TP, queda igual) - 7 tests en
+`tests/test_sync_window.py`, verificados numéricamente.
+`scripts/backtest_sync_window.py` compara el bot actual vs las variantes
+de 2 y 3 velas de ventana sobre BTC, mismo período de 7 meses, capital
+real $715.24.
+
+**Vista realista (capital real, filtro de riesgo activo):**
+
+| | Señales | Trades | Win rate | Profit factor | Drawdown | PF 1ra/2da mitad |
+|---|---|---|---|---|---|---|
+| Bot actual (benchmark) | 118 | 60 | 46.7% | **1.71** | 7.9% | 1.40 / 1.98 |
+| Ventana = 2 velas | 69 | 52 | 42.3% | **1.46** | 10.8% | 1.53 / 1.39 |
+| Ventana = 3 velas | 81 | 57 | 43.9% | **1.52** | 11.0% | 1.74 / **1.37** |
+
+**Vista exploratoria (lote fijo):**
+
+| | Trades | Win rate | Profit factor | Drawdown |
+|---|---|---|---|---|
+| Bot actual (benchmark) | 45 | 44.4% | **1.93** | 24.7% |
+| Ventana = 2 velas | 53 | 41.5% | **1.37** | **45.6%** |
+| Ventana = 3 velas | 58 | 43.1% | **1.49** | **46.1%** |
+
+**Se confirma exactamente el riesgo que se anticipó al plantear la
+hipótesis**: ambas variantes suben la frecuencia de señales, pero el
+profit factor cae en las dos vistas y el drawdown casi se duplica en la
+vista exploratoria. Ventana=2 no llega ni al umbral de 1.5 en vista
+realista. Ventana=3 técnicamente supera 1.5 (1.52) pero es una regresión
+clara contra el benchmark (1.71→1.52) y **falla la consistencia entre
+mitades** (1.74 en la primera, 1.37 en la segunda - la mitad más reciente
+queda por debajo del umbral); en vista exploratoria confirma la
+degradación (PF 1.49 vs 1.93 del benchmark, drawdown casi el doble).
+
+**Decisión: NO se implementa ninguna de las dos.** Permitir que la vela de
+rechazo aparezca mientras el RSI "está por girar" en vez de exigir que "ya
+giró" agrega ruido, no señal genuina - el filtro de confirmación de giro
+del RSI, igual que la vela de confirmación y el SL por ventana (ver
+"Metodología v2 'pura' para BTC" más arriba), resulta ser otra exigencia
+que sostiene el profit factor en vez de ser fricción innecesaria. La
+sequía de 2 semanas se mantiene como variación estadística dentro de lo
+que el sistema puede producir (ver diagnóstico de régimen de arriba), no
+algo que convenga corregir con una regla permanente que empeora el perfil
+general del bot. Sin flag de producción, `SyncWindowStrategy` queda
+reusable tal cual si en el futuro se quiere probar otra variante puntual.
+
 ## Próximos pasos pendientes
 
 1. Juntar operaciones reales de la cuenta real con la Metodología v2 (RSI
@@ -1628,6 +1687,20 @@ se extiende mucho mas alla de este record, ahi si ameritaria revisitarlo.
     cambio de régimen. El silencio actual (~12.4 días) ya es récord sobre
     el histórico de 7 meses (máximo previo: 10.9 días), pero del mismo tipo
     de variación ya vista antes. No requiere ninguna acción de código.
+19. Ventana de sincronización RSI-vela de rechazo en BTC - **rechazada,
+    las 2 variantes (28/09/2026)**. Ver "Ventana de sincronización
+    RSI-vela de rechazo en BTC" más arriba. Aceptar la vela de rechazo
+    dentro de 2 o 3 velas después del toque de RSI extremo (en vez de
+    exigir que el RSI ya haya girado) sube la frecuencia pero baja el
+    profit factor en las dos vistas y casi duplica el drawdown en la vista
+    exploratoria (45-46% vs 24.7%). Ventana=3 técnicamente supera PF 1.5
+    en vista realista pero es regresión contra el benchmark y falla
+    consistencia entre mitades (1.74/1.37). El filtro de "giro ya
+    confirmado" del RSI sostiene el profit factor, no es fricción sin
+    sentido - misma conclusión que con la vela de confirmación y el SL por
+    ventana en la Metodología v2 "pura". Sin flag de producción,
+    `SyncWindowStrategy` (`src/strategies/sync_window.py`) queda reusable
+    tal cual para otra variante puntual.
 
 ## Cómo correr cosas
 
