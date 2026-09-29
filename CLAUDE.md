@@ -2412,6 +2412,24 @@ Oro/BTC funcionan igual acá.
     `LevelBreakoutStrategy` (`src/strategies/level_breakout.py`) queda
     reusable tal cual para otro instrumento (ej. Oro, sobre MT5 real) o
     diseño de salida.
+37. Auditoría de rechazos de Oro sobre MT5 real, 21 meses - **recálculo
+    completo (29/09/2026)**. Ver "Auditoría de rechazos de Oro sobre MT5
+    real, 21 meses" más arriba. De los 5 puntos marcados en la auditoría
+    anterior (que solo evaluaba riesgo sin recalcular), se recalcularon
+    los 5 contra la referencia oficial vigente: metodología de rango
+    (ambos intentos) y filtro de tendencia 4H **confirman su rechazo**,
+    con muestra bastante más grande que antes (21-208 trades según
+    variante); swing 4H pasa de "muestra insuficiente" a **rechazado**
+    (PF 0.81, perdedor) sin que sea una reversión (nunca hubo aprobación
+    que revertir). El único punto con cambio sustantivo es el **piso de
+    volatilidad ATR**: el hallazgo de calidad de señal (piso 14.27 mejora
+    PF/consistencia a la vez) **no se sostiene con MT5 real** - el PF total
+    queda prácticamente igual al benchmark sin filtro (1.50 vs 1.55, no
+    una mejora) y la 2da mitad cae por debajo de 1.5 (1.09) - la
+    recomendación de "revisitar cuando crezca el capital" queda sin
+    sustento, no hay una señal de calidad validada esperando detrás del
+    bloqueo de capital. Ningún reusable en producción cambia (ninguna de
+    las 5 líneas tenía flag), no se corrió el barrido con datos nuevos.
 
 ## Tendencia con pullback a EMA 21 en BTC (recalibrado, 29/09/2026) — RECHAZADA
 
@@ -3276,6 +3294,136 @@ suficiente pero PF bajo el umbral) quedan cerradas por ahora. Sin flag de
 producción - `LevelBreakoutStrategy` queda reusable tal cual si se quiere
 probar en el futuro (por ejemplo, en Oro, sobre MT5 real per la política
 de datos vigente) o con otro diseño de SL/TP.
+
+## Auditoría de rechazos de Oro sobre MT5 real, 21 meses (29/09/2026) — recálculo completo de los 5 puntos marcados en la auditoría anterior
+
+La auditoría del 29/09 (ver "Auditoría de los rechazos de Oro corridos
+sobre Twelve Data" más arriba) clasificó por riesgo cinco rechazos de Oro
+corridos sobre Twelve Data, sin recalcular nada todavía. El usuario pidió
+ahora el recálculo real de los cinco contra MT5 (`data/xauusd_h1_full.csv`,
+21 meses, la referencia oficial vigente desde hoy), capital real $707.24,
+mismo criterio de aprobación de siempre (PF>1.5, sin regresión,
+consistencia split-half) - avisando explícitamente si algún resultado
+cambia de rechazo a posible reversión. Los 5 scripts ya existían
+(`backtest_range_reversion.py`, `backtest_trend_filter.py` +
+`_exploratory.py`, `backtest_volatility_filter.py`, `backtest_gold_4h.py`)
+y no necesitaron ningún cambio de código - solo apuntarlos al CSV de MT5
+en vez del de Twelve Data.
+
+### 1 y 2. Metodología de rango (baseline + parámetros aflojados) — RECHAZO CONFIRMADO, con muestra mucho más sólida
+
+| Variante | Twelve Data 7m (realista / exploratorio) | **MT5 real 21m (realista / exploratorio)** |
+|---|---|---|
+| Baseline | n=1 / PF 0.95 (n=10) | **PF 0.62 (n=21) / PF 0.67 (n=42)** |
+| Régimen laxo | n=2 / PF 0.67 (n=26) | **PF 0.79 (n=39) / PF 1.13 (n=100)** |
+| RSI 45/55 | n=2 / PF 0.68 (n=20) | **PF 0.65 (n=30) / PF 0.51 (n=86, DD 344.9%)** |
+| Combinado | n=4 / PF 0.66 (n=47) | **PF 0.75 (n=56) / PF 0.91 (n=173)** |
+
+La muestra pasó de 10-58 trades (chica, con advertencia explícita en su
+momento) a 21-173 - la más grande de cualquier evaluación de Oro de este
+proyecto. **El rechazo no solo se confirma, queda más sólido**: ninguna
+variante se acerca a 1.5, la mayoría queda directamente por debajo de 1.0
+(sistema perdedor) en ambas vistas. Sin solapamiento relevante con v2 (1
+señal común de 52-208, sin contradicción) en ninguna variante - mismo
+patrón que antes. **No hay reversión.**
+
+### 3. Filtro de tendencia 4H (SMA50/RSI/estructura) — RECHAZO CONFIRMADO
+
+| | Twelve Data 7m | **MT5 real 21m** |
+|---|---|---|
+| Benchmark realista | n=1 | **n=14, PF 1.13, split 1.59/0.82** |
+| Benchmark exploratorio | PF 1.31 (n=42), split 1.99/0.59 | **PF 1.55 (n=104), split 1.06/1.92** |
+| SMA50 realista | n=1 | **n=5, PF 1.31** (muestra aún chica) |
+| SMA50 exploratorio | PF 2.44 (n=14), split 8.88/0.30 | **PF 1.23 (n=44), split 1.29/1.19** |
+| RSI 4H realista | n=1 | **n=3, PF 3.79** (muestra ínfima, no concluyente) |
+| RSI 4H exploratorio | PF 2.90 (n=9), split 7.99/0.78 | **PF 1.57 (n=22), split 0.98/1.92** |
+| Estructura 4H realista | n=1 | **n=10, PF 1.35, split 2.90/0.59** |
+| Estructura 4H exploratorio | PF 1.81 (n=34), split 3.25/0.69 | **PF 1.70 (n=79), split 1.15/2.06** |
+
+La vista realista sigue sin muestra suficiente en 2 de 3 variantes (n=3-5),
+aunque mejoró bastante respecto a Twelve Data (n=1 en las 3). Con la
+vista exploratoria, que ya tenía muestra utilizable en ambas fuentes,
+**la conclusión no cambia**: ninguna variante mejora el benchmark
+sosteniendo las dos mitades por encima de 1.5 (SMA50 y estructura quedan
+por debajo del umbral en al menos una mitad; RSI 4H tiene su 1ra mitad en
+0.98, prácticamente perdedora). El patrón de fondo (inconsistencia entre
+mitades, incluido el propio benchmark sin filtro) persiste con MT5 real,
+aunque la dirección del split cambió (acá la 2da mitad es la mejor, no la
+peor - períodos distintos, 21 meses vs 7). **No hay reversión.**
+
+### 4. Filtro de piso de volatilidad ATR — REVERSIÓN PARCIAL: el hallazgo de calidad de señal NO SE SOSTIENE con MT5 real
+
+Este es el punto que más vale la pena leer con atención - es el único de
+los 5 donde el resultado cambia de forma sustantiva.
+
+| Piso ATR | Twelve Data 7m (exploratorio) | **MT5 real 21m (exploratorio)** |
+|---|---|---|
+| Sin filtro (benchmark) | PF 1.31 (n=42), split 1.99/0.59 | **PF 1.55 (n=104), split 1.06/1.92** |
+| ≥8.00 | PF 1.25 (n=41) | **PF 1.52 (n=88), split 0.95/2.11** |
+| ≥10.00 | PF 1.32 (n=38) | **PF 1.50 (n=78), split 1.68/1.31** |
+| ≥12.00 | PF 1.86 (n=33), split 2.42/1.21 | **PF 1.61 (n=73), split 1.99/1.18** |
+| **≥14.27 (el piso "ganador" original)** | **PF 2.42 (n=24), split 3.01/1.70 - las DOS mitades >1.5** | **PF 1.50 (n=61), split 1.84/1.09 - la 2da mitad cae por debajo del umbral** |
+
+El hallazgo original decía que el piso 14.27 mejoraba profit factor, win
+rate y consistencia entre mitades **a la vez**, con las dos mitades por
+encima de 1.5 (3.01 y 1.70). **Eso no se replica con MT5 real y una
+muestra bastante mayor (61 vs 24 trades)**: el profit factor total del
+piso 14.27 queda prácticamente igual o levemente peor que el benchmark sin
+filtro (1.50 vs 1.55, no una mejora), y la 2da mitad cae a 1.09 - por
+debajo del umbral, exactamente lo opuesto a lo que sostenía la aprobación
+original. Ningún piso probado (8/10/12/14.27) logra mejorar el benchmark
+Y sostener las dos mitades arriba de 1.5 a la vez sobre MT5 real - el más
+cercano (piso 12.00, PF 1.61 total) todavía falla en la 2da mitad (1.18).
+
+Vista realista: sin cambios operativos - 0-1 trades ejecutables en
+cualquier piso probado (mismo bloqueo de capital que ya se documentó),
+igual que con Twelve Data.
+
+**Conclusión revisada**: la recomendación anterior ("vale la pena este
+filtro apenas el capital crezca lo suficiente, ver tabla de umbrales de
+capital") pierde su sustento - no es solo que el filtro esté bloqueado por
+capital hoy (eso sigue siendo cierto), es que la premisa de que hay una
+señal de calidad genuina esperando detrás de ese bloqueo **no se sostiene**
+con la fuente de datos confiable. Si en el futuro se retoma, hay que
+volver a evaluar la calidad de señal desde cero con MT5 real, no asumir
+que el piso 14.27 (u otro) sigue siendo un buen candidato solo porque el
+capital creció.
+
+### 5. Swing 4H (v2 en timeframe 4H) — de "muestra insuficiente" a RECHAZO, no reversión
+
+| | Twelve Data 7m (1.251 velas 4H) | **MT5 real 21m (2.776 velas 4H)** |
+|---|---|---|
+| Trades exploratorio | 9 | **27** |
+| Profit factor exploratorio | 1.11 | **0.81 (perdedor)** |
+| Split 1ra/2da mitad | 0.32 / 3.05 (n chico, ruido) | **1.16 / 0.62** |
+| Trades realista | 0 | **0** |
+
+Con más historial (2.2x más velas 4H, igual que ya había pasado con M30 en
+BTC) la muestra pasó de 9 a 27 trades - todavía apenas en el borde del piso
+ideal de 25, pero ya alcanza para una lectura menos ruidosa. **La
+conclusión no se revierte a favor - se resuelve en contra**: el sistema
+queda en profit factor perdedor (0.81), empeorando hacia el tramo más
+reciente (2da mitad 0.62). No hay ambigüedad de muestra chica como antes.
+La vista realista sigue en 0 trades (el cuello de botella de capital para
+SL en 4H, más ancho que en 1H, no cambió). **Pasa de "sin conclusión,
+pausado" a rechazado con datos suficientes - no es una reversión de un
+rechazo previo (nunca hubo una aprobación que revertir), pero cierra la
+ambigüedad que quedaba pendiente.**
+
+### Síntesis de la auditoría
+
+De los 5 puntos recalculados, **4 confirman su rechazo original** (rango
+en ambos intentos, filtro de tendencia 4H, swing 4H) - en el caso de rango
+y swing 4H, con muestra bastante más grande y confiable que antes, lo que
+vuelve la confirmación más sólida, no menos. **1 punto (piso de
+volatilidad ATR) revierte parcialmente**: la ejecución seguía bloqueada
+por capital como ya se sabía, pero el hallazgo de que había una señal de
+calidad genuina detrás de ese bloqueo no se sostiene con la fuente de
+datos confiable - la recomendación de "revisitar cuando crezca el
+capital" queda sin sustento, ya no hay una señal validada esperando del
+otro lado del filtro de capital. Ninguno de los 5 pasa de rechazado a
+aprobado. Sin cambios de código - recálculo puro sobre datos ya
+disponibles, ningún script necesitó modificarse.
 
 ## Cómo correr cosas
 
