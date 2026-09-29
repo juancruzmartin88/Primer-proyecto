@@ -2279,6 +2279,31 @@ Oro/BTC funcionan igual acá.
     `efficiency_ratio()` (`src/regime_filter.py`,
     `src/indicators.py`) quedan reusables tal cual para otra combinación
     de período/umbral, o para probar el mismo enfoque en Oro.
+29. Ruptura estructural con volumen en BTC - **muestra insuficiente, sin
+    conclusión (30/09/2026)**. Ver "Ruptura estructural con volumen en
+    BTC" más arriba. Diseño nuevo (consolidación angosta + ruptura con
+    cuerpo real + confirmación de volumen), evaluado con un export real
+    de MT5 (`data/btcusd_h1_volume.csv`, gitignored) porque el CSV de
+    Twelve Data no trae volumen. Ninguna de las 9 combinaciones de N
+    (8/10/12) x umbral de volumen (1.3x/1.5x/2.0x) juntó la muestra
+    mínima de entrenamiento - de 7 señales (la combinación más laxa) a 0.
+    Diagnóstico del embudo: la parte geométrica (consolidación + ruptura +
+    cuerpo real) ya deja 39-286 candidatos según N - **el filtro de
+    volumen es el que colapsa la muestra**, incluso en 1.3x (39→7 en
+    N=8). No es un bug, verificado a mano. No se puede aprobar ni
+    rechazar - mismo patrón que Oro 4H o el intento original de la
+    metodología de rango en Oro. Nota importante: el benchmark de v2
+    recalculado sobre este archivo da PF 2.91 (27 trades) - NO es
+    comparable al 1.77/60 trades de referencia (son feeds de precio
+    distintos, Exness MT5 vs Twelve Data, para el mismo período) - el
+    número de referencia para v2 sigue siendo el del CSV de Twelve Data.
+    Sin flag de producción. Si se retoma: el cuello de botella
+    identificado es el volumen, no la geometría - valdría la pena evaluar
+    con el usuario si aflojar el umbral por debajo de 1.3x (fuera del
+    rango pedido) cambia la conclusión, o extender el período de
+    referencia, antes de descartar el concepto. No aflojar los parámetros
+    fijos (`range_width_atr_mult`/`min_body_ratio`) sin que el usuario lo
+    pida explícitamente.
 
 ## Tendencia con pullback a EMA 21 en BTC (recalibrado, 29/09/2026) — RECHAZADA
 
@@ -2600,6 +2625,98 @@ reusables tal cual si en el futuro se quiere probar otra combinación de
 período/percentil, o el mismo enfoque en Oro (donde el diagnóstico de
 régimen original sí encontró una compresión de volatilidad real entre
 mitades, a diferencia de BTC).
+
+## Ruptura estructural con volumen en BTC (30/09/2026) — muestra insuficiente, sin conclusión
+
+Después de agotar tendencia-pullback a EMA en BTC (3 intentos rechazados:
+EMA 50, EMA 21, EMA 50 + confirmación), el usuario pidió una hipótesis
+distinta: BTC no tiene retrocesos ordenados a una media, pero sí podría
+tener fases de consolidación seguidas de rupturas con impulso. Diseño
+nuevo (no repite la ruptura de consolidación del 23/09/2026, rechazada
+con PF 1.06-1.11, ni el "breakout de continuidad BTC en 4H", PF máx
+1.11 - ninguna de las dos tenía filtro de volumen):
+
+1. Consolidación: rango de las últimas N velas (8-12) angosto respecto al
+   ATR del período (`range_width_atr_mult`, fijo en 1.5x - no se
+   optimiza, para no sumar un tercer eje de búsqueda).
+2. Ruptura: vela que cierra por fuera del rango con cuerpo real, no mecha
+   (`min_body_ratio`, fijo en 0.5).
+3. Confirmación de volumen: volumen de la ruptura >= umbral (1.3x/1.5x/2x
+   el promedio de 20 velas) - candidato a optimizar junto con N.
+4. SL detrás del extremo opuesto del rango (+ margen chico de ATR). TP
+   por nivel estructural + fallback (mismo mecanismo de v2/v3).
+
+Implementado en `src/strategies/volume_breakout.py`
+(`VolumeBreakoutStrategy`, no hereda de ninguna estrategia existente,
+reusa `get_levels_for_symbol`/`nearest_level_beyond_price` para el TP) -
+8 tests nuevos verificados numéricamente.
+
+**Requisito de datos distinto al resto del proyecto en BTC**: el CSV de
+Twelve Data (`data/btcusd_h1_raw.csv`, usado en todos los demás
+backtests de BTC) no trae columna de volumen - el chequeo de volumen
+quedaría inerte y no se podría elegir el umbral de verdad. Se le pidió al
+usuario un export real de MT5 (`Symbols → Bars → BTCUSDm → H1 → Export`,
+mismo período de 7 meses, con `<TICKVOL>`) - `data/btcusd_h1_volume.csv`
+(convertido, gitignored). Nota para sesiones futuras: **al ser un feed
+distinto de Exness MT5 en vez de Twelve Data, el benchmark de v2 recalculado
+sobre este archivo da PF 2.91 realista (27 trades) - NO es comparable al
+1.77/60 trades de referencia del resto del proyecto**, son series de
+precio distintas para el mismo símbolo/período. El número de referencia
+para comparar v2 en general sigue siendo el de `data/btcusd_h1_raw.csv`;
+este archivo con volumen es solo para evaluaciones que necesiten volumen
+real, no reemplaza al CSV de referencia para nada más.
+
+`scripts/backtest_volume_breakout.py` implementa el mismo protocolo de
+selección fuera de muestra que `backtest_regime_filter.py`: correr el
+backtest exploratorio completo por cada combinación de N x umbral de
+volumen, pero evaluar el profit factor solo sobre la 1ra mitad
+cronológica de los trades resultantes (entrenamiento, piso mínimo de 8
+trades) antes de elegir.
+
+**Resultado: ninguna de las 9 combinaciones (N∈{8,10,12} x
+umbral∈{1.3x,1.5x,2.0x}) juntó la muestra mínima de entrenamiento** - el
+total de señales crudas por combinación va de 7 (la más laxa, N=8/1.3x)
+a 0 (las más exigentes). Diagnóstico ad hoc de dónde se pierde la muestra
+en el embudo (sin volumen, solo geometría):
+
+| N | Velas en consolidación (rango≤1.5x ATR) | + ruptura con cierre afuera | + cuerpo real (≥50%) | + volumen≥1.3x (la más laxa) |
+|---|---|---|---|---|
+| 8 | 286 | 53 | 39 | **7** |
+| 10 | 113 | 21 | 17 | **2** |
+| 12 | 49 | 9 | 8 | **1** |
+
+El embudo geométrico (consolidación + ruptura + cuerpo real) ya deja una
+muestra razonable en N=8 (39 candidatos) - **el filtro de volumen es el
+que colapsa la muestra**, incluso en su versión más laxa (1.3x): de 39
+candidatos con buena geometría, solo 7 tienen volumen 30% por encima del
+promedio. No es un problema de bug (se verificó el cálculo manualmente,
+coincide exacto con lo que reporta el backtest) - es que, en BTC 1H real
+(MT5), un volumen sensiblemente elevado no suele coincidir con una
+ruptura geométricamente limpia de un rango angosto con la frecuencia que
+el diseño necesita para generar una muestra evaluable en 7 meses.
+
+**No se puede aplicar el criterio de aprobación (ni aceptar ni
+rechazar)** - con 0-7 señales por combinación, no alcanza ni para
+completar el primer paso del protocolo pedido (selección con la 1ra
+mitad), mucho menos para validar con la 2da. Es el mismo tipo de
+resultado que "Metodología v2 en Oro 4H" o el intento original de
+"Metodología de rango en Oro" - muestra insuficiente por la combinatoria
+de varias condiciones simultáneas, no evidencia de que el diseño sea
+malo o bueno.
+
+**Sin decisión de aceptar/rechazar. Sin flag de producción.** Si se
+quiere retomar: el cuello de botella identificado es específicamente el
+filtro de volumen, no la parte geométrica (consolidación+ruptura+cuerpo
+real ya da 39-286 candidatos según N) - antes de descartar el concepto,
+valdría la pena evaluar con el usuario si aflojar el umbral de volumen
+por debajo de 1.3x (no probado, fuera del rango pedido) cambia la
+conclusión, o si extender el período de referencia (mismo patrón que
+M30/Oro 4H) juntaría muestra suficiente sin tocar ningún parámetro -
+`VolumeBreakoutStrategy` ya es reusable tal cual para cualquiera de las
+dos vías. No aflojar `range_width_atr_mult`/`min_body_ratio` (los
+parámetros fijos, no pedidos para optimizar) sin que el usuario lo pida
+explícitamente - ya se vio en "Metodología de rango en Oro" que aflojar
+parámetros no siempre mejora la muestra sin sacrificar calidad.
 
 ## Cómo correr cosas
 
