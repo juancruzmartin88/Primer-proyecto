@@ -2340,6 +2340,29 @@ Oro/BTC funcionan igual acá.
     operativamente porque ya estaba dormida. El riesgo real del día
     sigue siendo específicamente v3 en Oro (ítem 30), no v2. Sin cambios
     de código.
+32. Referencia oficial de Oro pasa a MT5 real, 21 meses - **v3 NO llega al
+    umbral (30/09/2026)**. Ver "Referencia oficial de Oro pasa a ser MT5
+    real, 21 meses completos" más arriba. Corrida sobre los 21 meses
+    completos de `data/xauusd_h1_full.csv` (no un recorte) - la muestra
+    real se triplicó: v3 da 73 trades ejecutables (vs 5 del recorte de 7
+    meses), PF **1.42**, WR 39.7%, DD 15.2%, split de mitades 1.36/1.46 -
+    **por debajo del umbral de aprobación (PF>1.5) que el proyecto exigió
+    siempre, sin excepciones**, aunque no es un rechazo catastrófico (sin
+    colapso entre mitades, drawdown moderado). v2 benchmark también sobre
+    los 21 meses: 14 trades, PF 1.13, 2da mitad perdedora (0.82) - sin
+    cambio operativo, Oro-v2 sigue funcionando como está diseñada. **Desde
+    hoy, política de datos vigente para Oro: MT5 real es la referencia
+    oficial para decisiones de aprobación, Twelve Data queda marcado NO
+    confiable para esa función en este instrumento** (sí sigue sirviendo
+    para BTC/ETH/EUR-USD y para análisis exploratorios de Oro que no
+    decidan nada). Recomendación (no decisión unilateral, v3 es manual):
+    tratar la aprobación de v3 en Oro como revocada hasta nueva
+    evaluación, no solo "con menos confianza" como se dijo en el ítem 30 -
+    el respaldo estadístico que sostenía la aprobación ya no existe con
+    la referencia oficial actual. Sin cambios de código -
+    `print_result()` de `scripts/backtest_trend_pullback.py` ganó un
+    split en tercios (además del de mitades) para aprovechar la
+    granularidad extra de 21 meses.
 
 ## Tendencia con pullback a EMA 21 en BTC (recalibrado, 29/09/2026) — RECHAZADA
 
@@ -2904,6 +2927,106 @@ parte de v2 en Oro no cambia el panorama operativo porque ya estaba
 inactiva. El hallazgo de riesgo real del día sigue siendo específicamente
 v3 en Oro (sección de arriba), no v2. Sin cambios de código - síntesis de
 resultados ya calculados en esta misma sesión.
+
+## Referencia oficial de Oro pasa a ser MT5 real, 21 meses completos (30/09/2026) — v3 NO llega al umbral con la nueva referencia
+
+Cierre del hilo de verificación con datos reales abierto hoy: con solo 5
+trades ejecutables (recorte de 7 meses), v3 en Oro no se podía confirmar
+ni rechazar. El usuario pidió correr el análisis completo sobre los 21
+meses ya disponibles en `data/xauusd_h1_full.csv` (en vez de recortarlo a
+7 para comparar con Twelve Data) - la muestra debía triplicarse y dar por
+primera vez un número confiable en vista realista.
+
+**Decisión de política de datos (pedida explícitamente por el usuario,
+vigente desde hoy)**: para Oro, **MT5 real pasa a ser la referencia
+oficial del proyecto para decisiones de aprobación** - Twelve Data queda
+marcado **no confiable** para esa función en este instrumento (subestima
+el ancho real de los SL, ver hallazgos de hoy en v2-BTC, v2-Oro y
+v3-Oro). Twelve Data sigue sirviendo para todo lo demás que no sea Oro
+(BTC, ETH, EUR/USD, etc. - ahí no se detectó el mismo problema; ver
+"Verificación de v2 (BTC y Oro) con datos reales de MT5" más arriba,
+donde BTC dio *mejor* con MT5 real, no peor) y para análisis exploratorios
+puntuales sobre Oro donde no se decide nada (diagnósticos, etc.) - pero
+ninguna futura aprobación/rechazo de una estrategia de Oro debería
+apoyarse solo en Twelve Data sin repetir el número contra MT5.
+
+Se agregó split en tercios a `print_result()` de
+`scripts/backtest_trend_pullback.py` (adicional al de mitades, se activa
+solo si hay muestra suficiente - no reemplaza el estándar del proyecto)
+para aprovechar la granularidad extra de 21 meses. Mismo capital real
+$707.24, mismo `pip_size=0.01`/`pip_value_per_lot=1.0`.
+
+**Resultado - v2 (benchmark) sobre 21 meses de MT5 real:**
+
+| | Realista | Exploratorio (lote fijo) |
+|---|---|---|
+| Señales crudas | 192 | 192 |
+| Trades | **14** | 104 |
+| Win rate | 35.7% | 40.4% |
+| Profit factor | **1.13** | 1.55 |
+| Drawdown | 7.8% | 112.0%* |
+| Split 1ra/2da mitad | 1.59 / **0.82** | 1.06 / 1.92 |
+
+(*Drawdown del lote fijo no es literal en magnitud, mismo disclaimer de
+siempre.) v2 en Oro sigue sin acercarse al criterio de aprobación con
+muestra real de verdad (n=14, la primera vez con más de 2 trades) - PF
+1.13 total, y la 2da mitad es directamente perdedora (0.82). Consistente
+con el diagnóstico de inconsistencia entre mitades ya documentado (Oro
+tiene tramos de régimen bueno y malo) - no cambia nada operativo, v2-Oro
+sigue funcionando exactamente como está diseñada (bloqueando casi todo
+por capital), esto solo confirma con más muestra que ni sacando ese
+bloqueo la señal cruda sería gran cosa en Oro con estos parámetros.
+
+**Resultado - v3 (Tendencia-EMA) sobre 21 meses de MT5 real:**
+
+| | Realista | Exploratorio (lote fijo) |
+|---|---|---|
+| Señales crudas | 200 | 200 |
+| Trades | **73** | 142 |
+| Win rate | 39.7% | 38.0% |
+| Profit factor | **1.42** | 1.28 |
+| Drawdown | 15.2% | 84.8%* |
+| Split 1ra/2da mitad | 1.36 / 1.46 | 0.98 / 1.44 |
+| Split 1er/2do/3er tercio | 1.01 / 1.10 / **2.26** | 1.47 / 1.32 / 1.18 |
+
+**Con n=73 (muestra comparable al estándar del proyecto, 55-118 en otras
+aprobaciones), v3 en Oro queda por debajo del umbral de aprobación
+(PF>1.5) que este proyecto exigió siempre, sin excepciones** - 1.42 total,
+ninguna mitad llega a 1.5 (1.36 y 1.46, ambas cerca pero abajo). El
+drawdown (15.2%) es moderado, no alarmante, y la consistencia entre
+mitades es razonable (1.36→1.46, sin el colapso brusco que sí se vio en
+otros rechazos de este proyecto) - no es un rechazo catastrófico como
+v2-BTC-pura o la tendencia-pullback en BTC (esas dieron PF<1.0). El split
+en tercios muestra una tendencia interesante sin explicación investigada
+todavía: 1.01→1.10→2.26, mejorando hacia el tramo más reciente (25
+trades en el último tercio, muestra no despreciable) - podría ser una
+mejora genuina de régimen reciente o una racha, no se investigó la causa.
+
+**Comparación completa de los tres números de v3 en Oro vista realista:**
+
+| Fuente | Trades | WR | PF | DD |
+|---|---|---|---|---|
+| Twelve Data, 7 meses (aprobación original 29/09) | 31 | 61.3% | 3.40 | 6.4% |
+| MT5 real, 7 meses (recorte, 30/09) | 5 | 80.0% | 6.97 | 1.9% |
+| **MT5 real, 21 meses (referencia oficial, 30/09)** | **73** | **39.7%** | **1.42** | 15.2% |
+
+El número de 7 meses en Twelve Data (el que sostuvo la aprobación
+original) queda descartado como referencia - no reflejaba el ancho real
+de los stops de Oro. El de 5 trades era ruido puro. El de 73 trades es el
+primero con tamaño de muestra confiable, y **no alcanza el criterio de
+aprobación del proyecto**.
+
+**No se toma una decisión unilateral de desactivar v3** (es una línea
+manual, el usuario la corre él mismo comparando contra el gráfico) - pero
+la recomendación cambia respecto a la de la sección anterior ("tratar con
+menos confianza"): con este número, v3 en Oro **no cumple el mismo
+estándar que el resto de las estrategias aprobadas en este proyecto**
+(RSI 35/65 en BTC: PF 1.88/59 trades; straddle semanal: PF 1.89/55
+señales - ambas por encima de 1.5 con muestra similar o mayor). Sugerido:
+tratar la aprobación de v3 en Oro como revocada hasta nueva evaluación,
+no solo "con menos confianza" - el usuario decide si sigue operándola
+mientras tanto, pero el respaldo estadístico que la sostenía ya no existe
+con la referencia oficial actual.
 
 ## Cómo correr cosas
 
