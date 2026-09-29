@@ -2363,6 +2363,33 @@ Oro/BTC funcionan igual acá.
     `print_result()` de `scripts/backtest_trend_pullback.py` ganó un
     split en tercios (además del de mitades) para aprovechar la
     granularidad extra de 21 meses.
+33. Cierre formal de v3 (Tendencia-EMA) en Oro - **CERRADA (29/09/2026),
+    no pausada ni "con menos confianza"**. Ver "Cierre formal de v3
+    (Tendencia-EMA) en Oro y confirmación de política de datos" más
+    arriba. Stack vigente: BTC → v2 únicamente; Oro → v2 únicamente. Si se
+    retoma tendencia-pullback en Oro en el futuro, que sea como evaluación
+    nueva desde cero contra la referencia oficial (MT5 real), no una
+    reactivación de la aprobación del 29/09 (esa quedó invalidada por
+    muestra insuficiente sobre una fuente de datos no confiable para esta
+    función).
+34. Política de datos para Oro - **confirmada explícitamente (29/09/2026)**:
+    MT5 real es la referencia oficial para aprobar/rechazar estrategias de
+    Oro de acá en adelante; Twelve Data queda no confiable para esa
+    función específica (sigue válida para BTC/ETH/EUR-USD y para
+    diagnósticos de Oro que no decidan nada). Ver la misma sección de
+    arriba.
+35. Auditoría de los rechazos de Oro sobre Twelve Data (28/09/2026) -
+    **sin recálculo, solo evaluación de riesgo (29/09/2026)**. Ver
+    "Auditoría de los rechazos de Oro corridos sobre Twelve Data" más
+    arriba. La mayoría (metodología de rango, filtro de tendencia 4H, el
+    hallazgo de calidad de señal del filtro de ATR, swing 4H) se apoyan en
+    vista exploratoria o ya eran inconcluyentes - riesgo BAJO de ser
+    artefacto de datos, probablemente se sostienen. Dos puntos quedan
+    marcados de riesgo ALTO por depender enteramente de vista realista
+    (montos de capital ancla del filtro de ATR, y el techo de riesgo 3%
+    completo) - si se retoman, recalcular primero contra MT5 real antes
+    que las demás líneas. No se corrió ningún backtest nuevo en esta
+    auditoría, tal como pidió el usuario.
 
 ## Tendencia con pullback a EMA 21 en BTC (recalibrado, 29/09/2026) — RECHAZADA
 
@@ -3027,6 +3054,94 @@ tratar la aprobación de v3 en Oro como revocada hasta nueva evaluación,
 no solo "con menos confianza" - el usuario decide si sigue operándola
 mientras tanto, pero el respaldo estadístico que la sostenía ya no existe
 con la referencia oficial actual.
+
+## Cierre formal de v3 (Tendencia-EMA) en Oro y confirmación de política de datos (29/09/2026)
+
+Pedido explícito del usuario tras el recálculo sobre 21 meses de MT5 real
+(sección anterior): con PF 1.42/WR 39.7%/DD 15.2%/n=73, v3 en Oro no llega
+al umbral de aprobación (1.5). La aprobación original (PF 3.40, 29/09,
+sobre Twelve Data) quedó invalidada por muestra insuficiente sobre una
+fuente de datos que este mismo día se confirmó no confiable para esta
+función en Oro. El usuario pidió cerrar esto formalmente, no dejarlo en
+"revocada, el usuario decide" como quedó redactado en la sección anterior.
+
+**Decisión: v3 (Tendencia-EMA) en Oro queda CERRADA, no pausada ni "con
+menos confianza".** Stack vigente de acá en adelante:
+
+- **BTC**: Metodología v2 únicamente (automática en el bot con dinero real
+  + respaldo manual del usuario comparando contra el gráfico). v3 ya
+  estaba cerrada en BTC desde el 29-30/09/2026 (tres intentos: EMA 50, EMA
+  21, EMA 50 + confirmación, los tres rechazados).
+- **Oro**: Metodología v2 únicamente (manual, opera raramente por el
+  filtro de capital de la sección 3.2 - ver decisión 2). v3 deja de ser
+  una línea operable, con efecto inmediato.
+
+Si en el futuro se quiere retomar tendencia-pullback a EMA en Oro, que sea
+como **evaluación nueva desde cero** - nuevo diseño o al menos nueva
+corrida completa contra la referencia oficial vigente (MT5 real, no
+Twelve Data), no una reactivación de la aprobación del 29/09 ni un ajuste
+puntual sobre esos resultados ya invalidados.
+
+**Confirmación de la política de datos para Oro (pedida explícitamente,
+ya establecida en la sección anterior, se reafirma acá sin ambigüedad)**:
+de acá en adelante, **MT5 real es la referencia oficial para decisiones de
+aprobación/rechazo de cualquier estrategia sobre Oro** en este proyecto.
+**Twelve Data queda marcada como no confiable para esa función específica
+en Oro** (subestima el ancho real de los stops técnicos, lo que infla la
+tasa de ejecución en vista realista y puede ocultar bloqueos reales del
+filtro de capital) - sigue siendo válida para todo lo demás: BTC, ETH,
+EUR/USD, y para análisis exploratorios/diagnósticos sobre Oro que no
+decidan una aprobación o un rechazo. Ninguna futura evaluación de Oro
+debería cerrarse (aprobar o rechazar) apoyada solo en Twelve Data sin
+repetir el número contra MT5 real.
+
+## Auditoría de los rechazos de Oro corridos sobre Twelve Data (29/09/2026) — sin recálculo, solo evaluación de riesgo
+
+El usuario pidió revisar si alguno de los rechazos de Oro del 28/09/2026
+(todos corridos sobre Twelve Data, antes de descubrirse el problema de
+fuente de datos) está afectado por el mismo mecanismo que infló v3 y
+ocultó el bloqueo real de capital en v2 - **sin recalcular nada todavía**,
+solo para saber cuáles ameritarían recálculo si se retoman en el futuro.
+El mecanismo específico (confirmado hoy): Twelve Data subestima el ancho
+real de los SL técnicos de Oro, lo que **distorsiona específicamente la
+vista realista** (cuántas señales pasan el filtro de capital de la
+sección 3.2) mucho más que la vista exploratoria (calidad de señal cruda a
+lote fijo) - la evidencia de hoy mostró que la vista exploratoria de v3
+se mantuvo en el mismo orden de magnitud entre feeds (PF 1.31 Twelve Data
+vs. 1.21 MT5 real), mientras que la vista realista colapsó (31→5 trades).
+Con ese criterio, cada rechazo se clasifica según de qué vista dependía su
+conclusión:
+
+| Rechazo | Vista de la que depende la conclusión | Riesgo de ser artefacto de datos |
+|---|---|---|
+| Metodología de rango en Oro (baseline + 3 ejes aflojados) | **Exploratoria** - realista ya era n=1-4 (poco informativo incluso en su momento); el rechazo se apoya en que aflojar régimen/RSI/proximidad empeora PF exploratorio (0.95→0.66-0.68) y dispara drawdown (45%→84-138%) en las 4 variantes | **BAJO** |
+| Filtro de tendencia 4H para Oro (SMA50/RSI/estructura) | **Exploratoria** - realista ya era n=1 en las 3 variantes (sin poder concluir nada, con o sin el problema de datos); el rechazo se apoya en que las 4 configuraciones (incluido el benchmark sin filtro) tienen 2da mitad perdedora en modo exploratorio | **BAJO** - además corroborado independientemente hoy: el benchmark de v2 sobre MT5 real 21 meses (sección anterior) también dio 2da mitad perdedora (PF 0.82), coincide con el diagnóstico de "Oro inconsistente entre mitades" hecho sobre Twelve Data |
+| Filtro de piso de volatilidad (ATR) para Oro - hallazgo de calidad de señal (piso 14.27 mejora PF/WR/consistencia) | **Exploratoria** | **BAJO** - mismo argumento que el resto: la vista exploratoria mostró ser la más estable entre feeds |
+| Filtro de piso de volatilidad (ATR) para Oro - **umbrales de capital cuantificados** ($900-1.000 para la primera señal, $2.000-2.500 para 26-52% de la muestra) | **Realista** - calculados directo sobre la distribución de ancho de SL de las 77 señales crudas de Twelve Data | **ALTO** - si el feed real tiene SL sistemáticamente más anchos (como se confirmó hoy para v2/v3 en Oro), estos montos de capital están subestimados: probablemente haga falta más capital del indicado para destrabar la misma proporción de señales |
+| Metodología v2 en Oro 4H (swing) | Ninguna - **ya era inconcluyente en los propios términos de Twelve Data** (n=9 exploratorio, 0 realista), nunca fue una decisión de aprobar/rechazar, ya estaba pausada por falta de muestra (no por el problema de datos) | **N/A** - no hay una conclusión que revisar, sigue igual de pausada |
+
+**Nota adicional no pedida explícitamente pero de la misma categoría**: el
+**Techo de riesgo 3% para Oro** (28/09/2026, rechazado) depende
+enteramente de la vista realista (2 trades base → 8 al subir el techo,
+7 de 8 perdedoras) - qué señales puntuales se destraban al subir el techo
+depende directo del ancho de SL que reporta Twelve Data. **Riesgo ALTO**,
+misma categoría que los umbrales de capital del filtro de ATR y que la
+aprobación original de v3 - no estaba en la lista que pidió el usuario,
+pero queda documentado acá por prolijidad.
+
+**Conclusión de la auditoría**: la mayoría de los rechazos de Oro del
+28/09 se apoyan en la vista exploratoria (calidad de señal cruda), que
+hoy se mostró razonablemente estable entre Twelve Data y MT5 real - esos
+rechazos probablemente se sostienen sin necesidad de recalcular nada. Los
+puntos de riesgo real están acotados a cifras específicas en vista
+realista: los umbrales de capital del filtro de ATR y el rechazo completo
+del techo de riesgo 3%. **No se recalculó nada en esta auditoría** (tal
+como pidió el usuario - "no implica reabrir nada todavía"), queda como
+prioridad si alguna de estas líneas se retoma en el futuro: primero Techo
+de riesgo 3% y los montos de capital del filtro de ATR (ambos sobre MT5
+real, ya que 21 meses de `data/xauusd_h1_full.csv` están disponibles),
+recién después - y solo si hace falta - revisar rango/tendencia 4H/swing
+4H.
 
 ## Cómo correr cosas
 
