@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.indicators import adx, atr, rsi
+from src.indicators import adx, atr, ema, rsi
 
 
 def test_rsi_is_100_after_only_gains():
@@ -86,3 +86,18 @@ def test_adx_trend_exceeds_range_on_the_same_period():
     ranging = pd.DataFrame({"high": flat + 0.15, "low": flat - 0.15, "close": flat})
 
     assert adx(trending, period=14).iloc[-1] > adx(ranging, period=14).iloc[-1]
+
+
+def test_ema_converges_to_a_new_constant_level():
+    closes = pd.Series([100.0] * 20 + [110.0] * 20)
+    result = ema(closes, period=10)
+    assert result.iloc[-1] == pytest.approx(110.0, abs=0.5)
+
+
+def test_ema_reacts_faster_than_sma_of_the_same_period():
+    from src.indicators import sma
+
+    closes = pd.Series([100.0] * 20 + [110.0] * 5)
+    ema_value = ema(closes, period=10).iloc[-1]
+    sma_value = sma(closes, period=10).iloc[-1]
+    assert ema_value > sma_value

@@ -15,6 +15,12 @@ def sma(close: pd.Series, period: int = 50) -> pd.Series:
     return close.rolling(period, min_periods=period).mean()
 
 
+def ema(close: pd.Series, period: int = 50) -> pd.Series:
+    """EMA estandar (span=period, no el suavizado de Wilder de rsi/atr/adx) -
+    misma convencion que usa MT5/TradingView para "EMA N" en el grafico."""
+    return close.ewm(span=period, min_periods=period, adjust=False).mean()
+
+
 def rsi(close: pd.Series, period: int = 14) -> pd.Series:
     delta = close.diff()
     gains = delta.clip(lower=0)
