@@ -52,14 +52,26 @@ def raw_signals_by_time(strategy, data: pd.DataFrame, window_size: int = 200) ->
 
 def print_result(label: str, signals: int, result: BacktestResult) -> None:
     print(f"[{label}] señales={signals} | {result.summary()}")
-    half = len(result.trades) // 2
+    n = len(result.trades)
+    half = n // 2
     if half >= 3:
         first = BacktestResult(trades=result.trades[:half], initial_balance=result.initial_balance)
         second = BacktestResult(trades=result.trades[half:], initial_balance=result.initial_balance)
         print(f"    1ra mitad: {first.summary()}")
         print(f"    2da mitad: {second.summary()}")
     else:
-        print(f"    (muestra de {len(result.trades)} trades - muy chica para split de mitades confiable)")
+        print(f"    (muestra de {n} trades - muy chica para split de mitades confiable)")
+    # Con muestra grande (historial largo), split adicional en tercios para
+    # mas granularidad - no reemplaza el estandar de mitades del proyecto,
+    # lo complementa cuando hay suficiente n.
+    third = n // 3
+    if third >= 5:
+        t1 = BacktestResult(trades=result.trades[:third], initial_balance=result.initial_balance)
+        t2 = BacktestResult(trades=result.trades[third : 2 * third], initial_balance=result.initial_balance)
+        t3 = BacktestResult(trades=result.trades[2 * third :], initial_balance=result.initial_balance)
+        print(f"    1er tercio: {t1.summary()}")
+        print(f"    2do tercio: {t2.summary()}")
+        print(f"    3er tercio: {t3.summary()}")
 
 
 def main() -> None:
