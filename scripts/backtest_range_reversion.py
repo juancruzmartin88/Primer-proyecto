@@ -72,6 +72,7 @@ def main() -> None:
     parser.add_argument("--pip-value-per-lot", type=float, default=1.0)
     parser.add_argument("--adx-threshold", type=float, default=20.0)
     parser.add_argument("--regime-confirmation-candles", type=int, default=8)
+    parser.add_argument("--min-range-atr-mult", type=float, default=2.0)
     args = parser.parse_args()
 
     logger.remove()
@@ -84,6 +85,7 @@ def main() -> None:
             symbol=args.symbol, timeframe="H1",
             adx_threshold=args.adx_threshold,
             regime_confirmation_candles=args.regime_confirmation_candles,
+            min_range_atr_mult=args.min_range_atr_mult,
         )
 
     def make_v2_strategy():

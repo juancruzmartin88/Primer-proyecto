@@ -122,6 +122,21 @@ def test_no_signal_when_rsi_not_near_buy_level_even_in_ranging_regime():
     assert strategy.generate_signal(data) == Signal.HOLD
 
 
+def test_min_range_atr_mult_blocks_a_range_too_narrow_relative_to_atr():
+    # Mismo setup que test_buy_setup_detected_in_ranging_regime_with_tp_at_range_midpoint
+    # (ancho de rango ~3.9x el ATR ahi) - un min_range_atr_mult mas laxo lo
+    # deja pasar, uno mas estricto que ese ratio lo bloquea. Agregado
+    # 28/09/2026 tras ver en el backtest real que, sin este filtro, un
+    # rango casi plano da un TP pegado a la entrada (RR ~0.01-0.02),
+    # "ganancias" triviales que no compensan ningun riesgo real.
+    data = _candles(_buy_setup_rows())
+    loose = _make(min_range_atr_mult=0.5)
+    strict = _make(min_range_atr_mult=10.0)
+
+    assert loose.generate_signal(data) == Signal.BUY
+    assert strict.generate_signal(data) == Signal.HOLD
+
+
 def test_sl_price_raises_when_requested_signal_does_not_match_setup():
     strategy = _make()
     data = _candles(_buy_setup_rows())

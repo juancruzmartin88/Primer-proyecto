@@ -83,6 +83,7 @@ class RangeReversionStrategy(Strategy):
         rejection_wick_ratio: float = 1.5,
         level_proximity_atr_mult: float = 0.5,
         sl_atr_margin_mult: float = 0.5,
+        min_range_atr_mult: float = 2.0,
     ) -> None:
         self.symbol = symbol
         self.timeframe = timeframe
@@ -96,6 +97,7 @@ class RangeReversionStrategy(Strategy):
         self.rejection_wick_ratio = rejection_wick_ratio
         self.level_proximity_atr_mult = level_proximity_atr_mult
         self.sl_atr_margin_mult = sl_atr_margin_mult
+        self.min_range_atr_mult = min_range_atr_mult
         self.min_history = 3 * max(adx_period, rsi_period, atr_period) + regime_confirmation_candles
 
         self._cached_time = None
@@ -156,6 +158,14 @@ class RangeReversionStrategy(Strategy):
         range_floor = range_window["low"].min()
         range_ceiling = range_window["high"].max()
         if range_ceiling <= range_floor:
+            return None
+        # Filtro de ancho minimo (28/09/2026, agregado tras ver el detalle
+        # de la primera corrida): sin esto, un rango casi plano (varias
+        # velas casi identicas) da un TP practicamente pegado a la entrada
+        # -RR de 0.01-0.02, "ganancias" triviales que no compensan ningun
+        # riesgo real. Exige que el rango completo mida al menos
+        # `min_range_atr_mult` veces el ATR actual.
+        if (range_ceiling - range_floor) < self.min_range_atr_mult * current_atr:
             return None
 
         rsi_series = rsi(data["close"], period=self.rsi_period)
