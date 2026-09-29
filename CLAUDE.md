@@ -1829,6 +1829,59 @@ igual - por ejemplo niveles manuales cargados a mano (como Oro/BTC tienen
 en `config/levels.json`) en vez de depender solo de fractales
 automáticos, dado que EUR/USD nunca tuvo niveles manuales cargados.
 
+## Tendencia con pullback a EMA en BTC (29/09/2026) — RECHAZADA
+
+El usuario pidió probar el mismo diseño v3 aprobado en Oro (EMA(50) +
+retroceso + vela de rechazo geométrica a favor de tendencia + SL detrás
+del extremo + TP por nivel/fallback) sin modificar ningún parámetro, esta
+vez en BTC - mismo período de 7 meses, mismo `scripts/backtest_trend_pullback.py`
+reusado tal cual (solo cambia symbol y pip config: `pip_size=0.01`,
+`pip_value_per_lot=0.01`, convención de BTC en Exness).
+
+**Benchmark v2 en BTC (referencia, calculado en la misma corrida):**
+realista 60 trades, WR 46.7%, PF 1.77; exploratorio 45 trades, WR 44.4%,
+PF 1.93.
+
+**Resultado - tendencia-pullback en BTC:**
+
+| | Realista | Exploratorio |
+|---|---|---|
+| Trades | 76 | 77 |
+| Win rate | 32.9% | 32.5% |
+| Profit factor | **0.98 (perdedora)** | **0.79 (perdedora)** |
+| Drawdown | 16.7% | **78.5%** |
+| PF 1ra mitad | 0.81 | 0.61 |
+| PF 2da mitad | 1.17 | 1.10 |
+
+**Falla el criterio de aprobación en todo sentido**: profit factor por
+debajo de 1.0 en las dos vistas (sistema perdedor), regresión clara
+contra el benchmark de v2 en BTC (1.77→0.98 realista), y ninguna de las 4
+mitades (2 vistas x 2 mitades) llega al umbral de 1.5. Muestra suficiente
+(76-77 trades) para que no sea ruido de muestra chica - es un rechazo
+limpio.
+
+**Solapamiento con v2**: 3 de 116 señales (2.6%), las 3 contradictorias -
+mismo patrón que en Oro (cuando coinciden, nunca coinciden en dirección).
+Mismo criterio de desempate aplicaría si se llegara a operar en paralelo,
+pero es irrelevante acá porque la estrategia en sí no aprueba.
+
+**Diagnóstico de causa NO investigado** (no se pidió) - hipótesis sin
+verificar: BTC tiene una dinámica de tendencia más volátil y con
+reversiones más bruscas que Oro, así que un "retroceso limpio a la EMA"
+probablemente no describe la misma calidad de setup en los dos
+instrumentos. Si en el futuro se quiere entender el porqué exacto (mismo
+tipo de análisis que la inconsistencia entre mitades de Oro), no está
+hecho todavía.
+
+**Decisión: NO se activa en BTC.** Al fallar, no aplica la pregunta de
+integración con `src/bot.py` que el usuario planteó de antemano (solo
+era relevante si aprobaba) - `TrendPullbackStrategy` sigue siendo
+exclusiva de Oro como segunda línea manual (ver sección de arriba), sin
+ningún cambio al bot. Sin flag de producción - no hace falta código
+nuevo para reconsiderarlo, ya es instanciable tal cual con
+`symbol="BTCUSDm"` si se quiere revisar en el futuro (por ejemplo, con
+parámetros de EMA/proximidad ajustados para la volatilidad de BTC).
+
 ## Próximos pasos pendientes
 
 1. Juntar operaciones reales de la cuenta real con la Metodología v2 (RSI
@@ -2046,6 +2099,18 @@ automáticos, dado que EUR/USD nunca tuvo niveles manuales cargados.
     de entrada para Forex (por ejemplo, niveles manuales cargados a mano
     en vez de solo fractales) antes de asumir que los mismos parámetros
     de Oro/BTC funcionan igual.
+23. Tendencia con pullback a EMA en BTC - **rechazada (29/09/2026)**. Ver
+    "Tendencia con pullback a EMA en BTC" más arriba. El mismo diseño v3
+    aprobado en Oro (PF 3.40 realista) da PF 0.98 (realista) y 0.79
+    (exploratorio) en BTC - sistema perdedor en las dos vistas, regresión
+    clara contra el benchmark de v2 en BTC (1.77), ninguna de las 4
+    mitades llega a 1.5. Contraste marcado con Oro, causa no investigada
+    (no se pidió) - hipótesis sin verificar: BTC tiene reversiones más
+    bruscas, un "retroceso limpio a la EMA" no describe la misma calidad
+    de setup que en Oro. `TrendPullbackStrategy` sigue siendo exclusiva
+    de Oro (segunda línea manual) - no aplica en BTC, y por eso no hace
+    falta resolver la integración con `src/bot.py` que se había
+    planteado como pendiente condicional a que aprobara.
 
 ## Cómo correr cosas
 
