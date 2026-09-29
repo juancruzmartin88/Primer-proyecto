@@ -46,3 +46,33 @@ def true_range(data: pd.DataFrame) -> pd.Series:
 def atr(data: pd.DataFrame, period: int = 14) -> pd.Series:
     tr = true_range(data)
     return tr.ewm(alpha=1 / period, min_periods=period, adjust=False).mean()
+
+
+def adx(data: pd.DataFrame, period: int = 14) -> pd.Series:
+    """ADX de Wilder - fuerza de tendencia (no direccion), 0-100.
+
+    Valores bajos (tipicamente <20-25) indican ausencia de tendencia -- lo
+    usa `RangeReversionStrategy` (28/09/2026) para confirmar regimen lateral
+    antes de operar reversiones sobre el rango en vez de sobre un nivel
+    estructural. Mismo suavizado de Wilder que `rsi`/`atr` (ewm alpha=1/periodo).
+    """
+    up_move = data["high"].diff()
+    down_move = -data["low"].diff()
+    plus_dm = up_move.where((up_move > down_move) & (up_move > 0), 0.0)
+    minus_dm = down_move.where((down_move > up_move) & (down_move > 0), 0.0)
+
+    tr = true_range(data)
+    smoothed_tr = tr.ewm(alpha=1 / period, min_periods=period, adjust=False).mean()
+    smoothed_plus_dm = plus_dm.ewm(alpha=1 / period, min_periods=period, adjust=False).mean()
+    smoothed_minus_dm = minus_dm.ewm(alpha=1 / period, min_periods=period, adjust=False).mean()
+
+    plus_di = 100 * (smoothed_plus_dm / smoothed_tr.replace(0, np.nan))
+    minus_di = 100 * (smoothed_minus_dm / smoothed_tr.replace(0, np.nan))
+
+    di_sum = plus_di + minus_di
+    dx = 100 * (plus_di - minus_di).abs() / di_sum.replace(0, np.nan)
+    # Sin movimiento direccional de ningun lado (di_sum == 0): no hay
+    # tendencia por definicion, DX = 0 en vez de NaN.
+    dx = dx.where(di_sum != 0, 0.0)
+
+    return dx.ewm(alpha=1 / period, min_periods=period, adjust=False).mean()
