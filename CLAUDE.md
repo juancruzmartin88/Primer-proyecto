@@ -2304,6 +2304,26 @@ Oro/BTC funcionan igual acá.
     referencia, antes de descartar el concepto. No aflojar los parámetros
     fijos (`range_width_atr_mult`/`min_body_ratio`) sin que el usuario lo
     pida explícitamente.
+30. Verificación de v3 en Oro con datos reales de MT5 - **ALERTA, la
+    ventaja de ejecución no se sostiene (30/09/2026)**. Ver "Verificación
+    de v3 (Tendencia-EMA) en Oro con datos reales de MT5" más arriba.
+    v3 en Oro (segunda línea manual, ya en uso con dinero real) estaba
+    validada solo con Twelve Data (PF 3.40 realista, 31 trades
+    ejecutables). Con el feed real de MT5 (`data/xauusd_h1_full.csv`,
+    recortado al mismo período de 7 meses) los trades ejecutables caen de
+    31 a **5** - n demasiado chico para confiar en el PF resultante (6.97)
+    en cualquier sentido. La vista exploratoria (calidad de señal cruda)
+    sí se sostiene razonablemente entre feeds (PF 1.31→1.21), así que el
+    diseño no parece mal calibrado - el problema es específicamente que el
+    feed real de Oro tiene SL técnicos más anchos de lo que capturaba
+    Twelve Data, y el filtro de capital de la sección 3.2 bloquea mucho
+    más de lo estimado (v2 mismo da 0 trades ejecutables acá, peor que los
+    2 de Twelve Data). Sin decisión unilateral tomada - se le devuelve al
+    usuario la pregunta de si re-evaluar la aprobación, como pidió
+    explícitamente. Recomendación: tratar las señales de v3 en Oro con
+    menos confianza hasta juntar más historial real (hay 21 meses
+    disponibles en `data/xauusd_h1_full.csv`, sólo se usaron 7 acá para
+    comparar directo contra el número aprobado). Sin cambios de código.
 
 ## Tendencia con pullback a EMA 21 en BTC (recalibrado, 29/09/2026) — RECHAZADA
 
@@ -2717,6 +2737,97 @@ dos vías. No aflojar `range_width_atr_mult`/`min_body_ratio` (los
 parámetros fijos, no pedidos para optimizar) sin que el usuario lo pida
 explícitamente - ya se vio en "Metodología de rango en Oro" que aflojar
 parámetros no siempre mejora la muestra sin sacrificar calidad.
+
+## Verificación de v3 (Tendencia-EMA) en Oro con datos reales de MT5 (30/09/2026) — ALERTA, la ventaja de ejecución no se sostiene
+
+Disparado por el hallazgo del mismo día en BTC (el feed de Twelve Data y
+el feed real de MT5 dan resultados distintos para el mismo período - v2
+en BTC: PF 2.91/27 trades en MT5 vs 1.77/60 trades en Twelve Data). v3 en
+Oro es la segunda línea manual que el usuario ya está usando con dinero
+real, y su aprobación (29/09/2026, PF 3.40 realista, 31 trades
+ejecutables) se validó únicamente con Twelve Data - nunca se había
+verificado contra el feed real de Exness. Se pidió recalcular antes de
+seguir confiando en ese número.
+
+**Datos**: no hizo falta pedirle un export nuevo al usuario - ya había un
+export real de MT5 de `XAUUSDm` H1 de 21 meses
+(`data/xauusd_h1_full.csv`, usado el 27/09/2026 para el straddle semanal),
+que cubre de sobra el período de 7 meses de referencia. Se recortó a
+13/02-10/09/2026 exacto (`data/xauusd_h1_mt5_reference_period.csv`,
+gitignored) - **3.414 velas, contra las 5.000 de Twelve Data para el
+mismo rango de fechas** (Twelve Data rellena los cierres de fin de semana
+con un precio casi congelado en vez de dejar el hueco real - mismo
+comportamiento ya documentado en la evaluación del straddle semanal -,
+así que genera más "velas" que el mercado real). Mismo
+`scripts/backtest_trend_pullback.py` reusado tal cual, capital real
+$707.24, `pip_size=0.01`/`pip_value_per_lot=1.0` (convención de Oro).
+
+**Resultado - comparación directa:**
+
+| | v2 benchmark (MT5 real) | v3 aprobada (Twelve Data, 29/09) | **v3 en MT5 real** |
+|---|---|---|---|
+| Señales crudas | 69 | 77 | 67 |
+| Trades (realista) | **0** | 31 | **5** |
+| Win rate (realista) | — | 61.3% | 80.0% |
+| PF (realista) | — | **3.40** | **6.97** |
+| Drawdown (realista) | — | 6.4% | 1.9% |
+| Trades (exploratorio) | 39 | 59 | 46 |
+| PF (exploratorio) | 1.51 | 1.31 | **1.21** |
+| Win rate (exploratorio) | 43.6% | 45.8% | 39.1% |
+| Drawdown (exploratorio) | 49.8% | — | **81.2%** |
+| PF exploratorio 1ra/2da mitad | 2.05/0.99 | 0.90/2.15 | 1.19/1.24 |
+
+**La vista exploratoria (calidad de señal cruda, sin filtro de capital)
+es razonablemente consistente entre feeds** - PF 1.21 en MT5 real vs 1.31
+en Twelve Data, mismo orden de magnitud, aunque con drawdown bastante
+peor (81.2% vs lo que daba Twelve Data) y win rate algo más bajo (39.1%
+vs 45.8%). El patrón de fondo (retroceso a EMA + vela de rechazo) parece
+capturar algo real en las dos fuentes de datos.
+
+**Pero la vista realista - la que importa para decidir si confiar en la
+estrategia con dinero real - colapsa**: de 31 trades ejecutables (el
+argumento central de la aprobación: "15x más muestra que v2 en Oro") a
+solo **5** con el feed real de MT5. El PF de 6.97 sobre esos 5 trades no
+significa nada estadísticamente (muestra muy por debajo del piso mínimo
+que este proyecto exige en cualquier otro backtest, 8-12 como mínimo) -
+ni siquiera alcanza para split de mitades. **Lo revelador no es el número
+en sí (podría haber sido bueno o malo, da igual con n=5) sino la caída de
+31 a 5**: el filtro de capital de la sección 3.2 bloquea sistemáticamente
+más señales de v3 con el ancho de SL que produce el feed real que con el
+que producía Twelve Data - la misma dinámica que ya bloqueaba casi todo
+v2 en Oro (sección 3.2), aplicada acá con más fuerza de la que el
+backtest de aprobación dejaba ver. De hecho, **v2 mismo da 0 trades
+ejecutables en este período con datos reales de MT5** (peor que los 2 que
+daba con Twelve Data) - confirma que el problema no es específico de v3,
+es que el feed real de Oro en este tramo tiene SL técnicos más anchos que
+los que capturaba Twelve Data para los dos sistemas.
+
+**Respuesta directa a la pregunta del usuario**: el número SÍ difiere
+mucho, igual que pasó con v2 en BTC. El argumento que sostuvo la
+aprobación de v3 (ejecutar 31 operaciones reales contra las 2 de v2) no
+se sostiene con el feed real - la ventaja de ejecución se reduce a 5
+contra 0, todavía una mejora relativa pero sobre una muestra demasiado
+chica para confiar en ella con la misma fuerza que antes. La calidad de
+señal cruda (vista exploratoria) sí parece sostenerse razonablemente
+entre feeds, así que el diseño en sí no parece estar mal calibrado - el
+problema es específicamente cuántas de esas señales son ejecutables al
+lote mínimo con el capital actual, que el backtest de aprobación
+sobreestimó al basarse en un feed que no refleja bien el ancho real de
+los pullbacks de Oro.
+
+**Recomendación, no decisión unilateral** (el usuario pidió explícitamente
+decidir si re-evaluar la aprobación, no que se decida acá): con n=5 no
+hay manera estadísticamente válida de reconfirmar ni de rechazar v3 en
+Oro - hace falta más historial real para saber si el patrón de "31 tenía
+que reducirse a algo, pero ¿a cuánto en el largo plazo?" converge a un
+número razonable o no. Mientras tanto, tratar las señales de v3 en Oro
+con menos confianza de la que daba el 3.40 original hasta juntar más
+datos reales (ya sea extendiendo el período de MT5 más atrás - hay 21
+meses disponibles en `data/xauusd_h1_full.csv`, se usaron sólo 7 acá para
+comparar manzanas con manzanas - o acumulando las propias operaciones
+reales del usuario). Sin cambios de código - reuso total de
+`TrendPullbackStrategy`/`scripts/backtest_trend_pullback.py` ya
+existentes, solo datos nuevos.
 
 ## Cómo correr cosas
 
