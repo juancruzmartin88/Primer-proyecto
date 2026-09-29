@@ -2259,6 +2259,26 @@ Oro/BTC funcionan igual acá.
     (`src/strategies/trend_pullback_confirmed.py`) queda reusable tal
     cual, por ejemplo para probarla en Oro (nunca evaluada con
     confirmación ahí).
+28. Filtro de régimen dinámico (Efficiency Ratio) para v2 en BTC - **NO se
+    adopta (30/09/2026)**. Ver "Filtro de régimen dinámico (Efficiency
+    Ratio) para v2 en BTC" más arriba. Descarta señales de v2 en regímenes
+    de tendencia fuerte (ER de Kaufman por encima de un techo). Umbral
+    elegido con selección fuera de muestra explícita (barrido de
+    período/percentil solo sobre la 1ra mitad de los trades, la 2da mitad
+    nunca tocada hasta la validación final) - ER(20)≤0.2847. En vista
+    exploratoria mejora las dos mitades frente al benchmark (1.59→1.76,
+    2.29→3.24), pero en vista realista (la que decide ejecución real) el
+    total queda empatado con el benchmark (1.72 vs 1.77) y **la 2da mitad
+    - la validación genuina fuera de muestra - retrocede de 2.12 a 1.66**,
+    justo el patrón que revela sobreajuste. No es un rechazo limpio por
+    número (1.72>1.5, ninguna mitad cae del umbral), pero sí falla el
+    objetivo real: mejorar sosteniendo la mejora fuera de la porción usada
+    para elegir el umbral. Sacrifica 43% de los trades realista sin
+    ganancia clara a cambio. Mismo espíritu que el stop a breakeven
+    (24/09/2026). Sin flag de producción, `RegimeFilteredStrategy` +
+    `efficiency_ratio()` (`src/regime_filter.py`,
+    `src/indicators.py`) quedan reusables tal cual para otra combinación
+    de período/umbral, o para probar el mismo enfoque en Oro.
 
 ## Tendencia con pullback a EMA 21 en BTC (recalibrado, 29/09/2026) — RECHAZADA
 
@@ -2496,6 +2516,90 @@ siendo exclusiva de Oro como segunda línea manual. Sin flag de
 producción, `TrendPullbackConfirmedStrategy` queda reusable tal cual (por
 ejemplo en Oro, donde nunca se probó la variante con confirmación) si se
 quiere revisar en el futuro.
+
+## Filtro de régimen dinámico (Efficiency Ratio) para v2 en BTC (30/09/2026) — NO se adopta, no sobrevive la validación fuera de muestra
+
+v2 en BTC es una estrategia de reversión (entra contra un extremo de RSI).
+Hipótesis del usuario: podría rendir peor en regímenes de tendencia fuerte
+sostenida, donde el precio sigue de largo en vez de revertir. Ya se había
+usado Efficiency Ratio de Kaufman como lectura en los diagnósticos de
+régimen de Oro/BTC (28/09/2026) - acá se convirtió en filtro activo real:
+descartar una señal cruda si el ER en ese momento supera un techo.
+
+**Implementación**: `efficiency_ratio()` agregado a `src/indicators.py`
+(0=puro ruido lateral, 1=tendencia perfectamente recta, acotado por
+desigualdad triangular - 4 tests nuevos verificados con series sintéticas).
+`RegimeFilteredStrategy` (`src/regime_filter.py`) envuelve
+`StructuralPullbackStrategy` sin tocarla, mismo patrón que
+`VolatilityFilteredStrategy`/`TrendFilteredStrategy` - 5 tests nuevos.
+
+**Selección de umbral sin sobreajustar (pedido explícito del usuario)**:
+`scripts/backtest_regime_filter.py` barre 3 períodos de ER (14/17/20) x 4
+percentiles (50/60/70/80) SOLO sobre la 1ra mitad cronológica de los
+trades del benchmark exploratorio (lote fijo) - la 2da mitad nunca se
+toca en esta fase. La combinación elegida por mejor profit factor de
+entrenamiento fue **ER(20) ≤ 0.2847** (PF entrenamiento 2.80 sobre 11
+trades, contra 1.59 del benchmark sin filtro en esa misma mitad) - **n=11
+es una muestra chica para elegir la mejor de 12 combinaciones probadas**,
+exactamente el escenario de sobreajuste que el usuario pidió evitar, así
+que el peso real de la evaluación recae en el paso siguiente: correr el
+backtest completo con ese umbral ya fijo y mirar la 2da mitad (la que
+nunca influyó en la elección) como validación genuina fuera de muestra.
+
+**Resultado - backtest completo de 7 meses con el umbral fijo:**
+
+| | v2 sin filtro (benchmark) | CON filtro ER(20)≤0.2847 |
+|---|---|---|
+| Señales crudas | 118 | 75 (-36%) |
+| Trades (realista) | 60 | 34 (-43%) |
+| Win rate (realista) | 46.7% | 50.0% |
+| PF realista (total) | **1.77** | **1.72** |
+| PF realista 1ra mitad (entrenamiento) | 1.40 | 1.79 |
+| **PF realista 2da mitad (VALIDACIÓN)** | **2.12** | **1.66** |
+| Drawdown realista | 7.5% | 8.0% |
+| Trades (exploratorio) | 45 | 30 |
+| PF exploratorio (total) | 1.93 | **2.41** |
+| PF exploratorio 1ra mitad | 1.59 | 1.76 |
+| PF exploratorio 2da mitad | 2.29 | **3.24** |
+| Drawdown exploratorio | 24.7% | 23.8% |
+
+**Las dos vistas dan lecturas opuestas sobre si hay mejora real, y la que
+importa para la cuenta real (realista) es la que falla la prueba de
+sobreajuste.** En vista exploratoria (calidad de señal aislada), el
+filtro mejora en las dos mitades a la vez frente al benchmark (1.59→1.76,
+2.29→3.24) - una lectura consistente con que el filtro sí está sacando
+señales genuinamente peores. Pero en vista realista (la que decide
+ejecución en cuenta real, con el filtro de capital de la sección 3.2
+activo), el total queda prácticamente empatado con el benchmark (1.72 vs
+1.77, dentro del ruido para 34 trades) y **la 2da mitad - la que nunca se
+usó para elegir el umbral, la validación fuera de muestra real - retrocede
+de 2.12 a 1.66 frente al benchmark sin filtro en esa misma mitad**: exactamente
+lo que hubiera revelado un sobreajuste, si es que el filtro fuera solo eso.
+La divergencia entre vistas no es nueva en este proyecto - ya se documentó
+en "Tendencia con pullback a EMA en Oro" que el filtro de capital
+interactúa con qué trades específicos quedan en cada vista (una señal
+bloqueada en una vista libera la vela siguiente para una señal distinta en
+la otra) -, pero acá esa interacción hace que la vista que manda para
+decidir (realista) no muestre ninguna mejora sostenida fuera de muestra,
+solo la exploratoria.
+
+**Decisión: NO se adopta el filtro.** Técnicamente el profit factor total
+en vista realista sigue arriba de 1.5 (1.72) y ninguna mitad cae por
+debajo del umbral - por el criterio numérico aislado, no sería un rechazo
+limpio como otros experimentos de este proyecto. Pero el objetivo real -
+mejorar sobre el benchmark vigente, sosteniendo la mejora fuera de la
+porción de datos usada para elegir el umbral - no se cumple en la vista
+que importa: la 2da mitad de la vista realista retrocede, no mejora,
+frente al benchmark sin filtro. Mismo espíritu que el stop a breakeven
+(24/09/2026) - un número que pasa el criterio aislado pero no representa
+una mejora genuina sobre lo que ya funciona. Sacrifica además el 43% de
+los trades ejecutables sin ninguna ganancia clara a cambio en la vista
+realista. Sin flag de producción - no hace falta código nuevo para
+reconsiderarlo, `RegimeFilteredStrategy` y `efficiency_ratio()` ya son
+reusables tal cual si en el futuro se quiere probar otra combinación de
+período/percentil, o el mismo enfoque en Oro (donde el diagnóstico de
+régimen original sí encontró una compresión de volatilidad real entre
+mitades, a diferencia de BTC).
 
 ## Cómo correr cosas
 
