@@ -1532,6 +1532,94 @@ algo que convenga corregir con una regla permanente que empeora el perfil
 general del bot. Sin flag de producción, `SyncWindowStrategy` queda
 reusable tal cual si en el futuro se quiere probar otra variante puntual.
 
+## Metodología de rango en Oro (28/09/2026) — muestra insuficiente, sin señal positiva
+
+Hipótesis grande, pedida explícitamente por el usuario: sumar una segunda
+estrategia que corra en PARALELO a la Metodología v2 (sin reemplazarla),
+activándose solo en fase lateral/comprimida, para cubrir el tiempo donde
+hoy Oro no opera nada porque el RSI no llega a un extremo real (35/65).
+Diseño del usuario (punto de partida, con margen para ajustar detalles de
+implementación):
+
+1. Régimen: ADX(14) < 20 sostenido 8-10 velas consecutivas (elegido sobre
+   la alternativa de ancho de Bollinger por integrarse mejor con el
+   suavizado de Wilder ya usado en `rsi`/`atr`).
+2. Entrada: RSI(14) toca 40 (no 35 - en rango angosto rara vez llega a
+   extremos reales) + vela de rechazo con el mismo test geométrico
+   estricto de siempre, cerca del piso del rango. Espejo con RSI 60 cerca
+   del techo.
+3. Salida: TP en el punto medio del rango (más conservador que el extremo
+   opuesto, según pidió el usuario para el primer test), SL apenas afuera
+   del piso/techo.
+4. Verificar que no genere señales contradictorias con v2 en el mismo
+   momento.
+
+**Implementado**: `adx()` agregado a `src/indicators.py` (suavizado de
+Wilder, mismo patrón que `rsi`/`atr` - 3 tests nuevos verificados con
+series sintéticas de tendencia vs. rango).
+`RangeReversionStrategy` (`src/strategies/range_reversion.py`) - el rango
+se define con la MISMA ventana que confirma el régimen (sin agregar un
+segundo parámetro de "ventana de rango"), la proximidad al piso/techo
+reusa el mismo patrón que `StructuralPullbackStrategy._find_pullback_level`
+(0.5x ATR). Decisión de diseño explícita y documentada en el código: a
+diferencia de v2, NO exige una vela de confirmación separada (el diseño
+del usuario solo menciona la vela de rechazo como gatillo) - marcado como
+el punto mas discutible del diseño, dado que el backtest de "Metodología
+v2 pura" del mismo día mostró que sacar la confirmación degrada BTC.
+`scripts/backtest_range_reversion.py` corre el backtest completo mas el
+chequeo de solapamiento con v2.
+
+**Bug encontrado y corregido antes del resultado final**: la primera
+corrida completa mostró 2 de 12 operaciones con RR de 0.01-0.02 - el
+detector de régimen confirmaba un rango casi plano, dejando el TP (punto
+medio) prácticamente pegado a la entrada, "ganancias" triviales que no
+compensaban ningún riesgo real. Se agregó `min_range_atr_mult` (default
+2.0: el rango completo tiene que medir al menos esa cantidad de ATRs) - 1
+test nuevo, y se volvió a correr el backtest completo con el fix aplicado
+antes de reportar nada como definitivo.
+
+**Resultado final (con el fix aplicado):**
+
+| | Valor |
+|---|---|
+| Señales crudas | 11 |
+| Trades ejecutables (realista, $715.24) | **1** (perdedor, -$13.97) |
+| Trades (exploratorio, lote fijo) | 10 |
+| Win rate | 40.0% |
+| Profit factor (exploratorio) | **0.95** (perdedora) |
+| Drawdown | 45.2% |
+| PF 1ra mitad (5 trades) | 1.25 |
+| PF 2da mitad (5 trades) | **0.52** |
+
+**Chequeo de solapamiento con v2 (punto 4 del pedido)**: 0 de 11 señales de
+rango coincidieron con una señal cruda de v2 en la misma vela - el
+detector de régimen separa bien los dos estados, sin contradicciones. Esa
+parte del diseño funciona como se pidió.
+
+**No cumple el criterio de aprobación, con advertencia fuerte de muestra
+chica.** 10 trades exploratorio es bastante menos que el estándar del
+proyecto (59 en BTC para RSI 35/65, 55 en el straddle semanal), y en
+vista realista queda en n=1 - no alcanza para una conclusión estadística
+firme. A diferencia de M30 (donde ampliar el historial invirtió la
+conclusión), acá el cuello de botella no es la cantidad de datos
+disponibles (mismos 7 meses de siempre) sino la combinatoria de 5
+condiciones simultáneas (régimen sostenido + RSI en zona + vela de
+rechazo + proximidad al borde + ancho mínimo de rango), que genera pocas
+señales con estos parámetros puntuales. Dicho eso, la dirección es
+consistentemente negativa: PF por debajo de 1.0 en la única vista con
+algo de muestra, y el único trade ejecutable en cuenta real fue perdedor.
+
+**Decisión: NO se activa, pero sin cerrar el concepto del todo** (a
+diferencia de Plata/Breakout, donde la señal era mala sin ambigüedad) -
+el diseño está probado como demasiado restrictivo para generar muestra
+con estos parámetros, no como fundamentalmente malo. Sin flag de
+producción. Si se quiere reintentar: aflojar `adx_threshold` (ej. 25 en
+vez de 20) o `regime_confirmation_candles` (ej. 5-6 en vez de 8) para
+generar más señales antes de evaluar calidad, o probar TP en el extremo
+opuesto del rango en vez del punto medio (la variante "menos
+conservadora" que el usuario dejó como alternativa para una segunda
+iteración).
+
 ## Próximos pasos pendientes
 
 1. Juntar operaciones reales de la cuenta real con la Metodología v2 (RSI
@@ -1701,6 +1789,20 @@ reusable tal cual si en el futuro se quiere probar otra variante puntual.
     ventana en la Metodología v2 "pura". Sin flag de producción,
     `SyncWindowStrategy` (`src/strategies/sync_window.py`) queda reusable
     tal cual para otra variante puntual.
+20. Metodología de rango en Oro (sistema paralelo a v2, activo en fase
+    lateral) - **no se activa, muestra insuficiente sin señal positiva
+    (28/09/2026)**. Ver "Metodología de rango en Oro" más arriba. Solo 10
+    trades exploratorio (PF 0.95, split 1.25/0.52) y 1 en vista realista
+    (perdedor) sobre los mismos 7 meses de referencia - la combinatoria de
+    5 condiciones simultáneas genera muy pocas señales con estos
+    parámetros. No hay señal positiva, pero tampoco se descarta el
+    concepto del todo (a diferencia de Plata/Breakout) - queda como
+    demasiado restrictivo, no como fundamentalmente malo. Sin
+    solapamiento/contradicción con v2 (0 de 11 señales coinciden en la
+    misma vela - el separador de régimen funciona). Sin flag de
+    producción. Si se retoma: aflojar `adx_threshold` o
+    `regime_confirmation_candles`, o probar TP en el extremo opuesto del
+    rango en vez del punto medio.
 
 ## Cómo correr cosas
 
