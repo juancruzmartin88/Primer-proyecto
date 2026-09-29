@@ -1882,6 +1882,83 @@ nuevo para reconsiderarlo, ya es instanciable tal cual con
 `symbol="BTCUSDm"` si se quiere revisar en el futuro (por ejemplo, con
 parámetros de EMA/proximidad ajustados para la volatilidad de BTC).
 
+## Tendencia con pullback a EMA en EUR/USD (29/09/2026) — RECHAZADA
+
+El usuario pidió probar el mismo diseño v3 (EMA(50) + retroceso + vela de
+rechazo geométrica a favor de tendencia + SL detrás del extremo + TP por
+nivel/fallback), sin modificar ningún parámetro, esta vez en EUR/USD - el
+mismo instrumento donde v2 ya se había probado (rechazada por calidad de
+señal, PF 1.12/1.08, pero confirmando que el filtro de capital de la
+sección 3.2 no bloquea nada en Forex por el pip value bajo). Objetivo
+explícito del usuario: verificar si esa misma ventaja de capital se
+sostiene también con la lógica de tendencia (no asumirlo solo porque el
+mecanismo - pip value bajo - es el mismo), y si la calidad de señal de v3
+generaliza a un tercer instrumento de dinámica distinta a Oro/BTC. Mismo
+`scripts/backtest_trend_pullback.py` reusado tal cual (solo cambia symbol
+y pip config: `pip_size=0.0001`, `pip_value_per_lot=10.0`, mismo estándar
+de Forex ya usado para v2-EURUSD), mismo período de 7 meses de referencia,
+`data/eurusd_h1_converted.csv` (el mismo CSV ya convertido para la prueba
+de v2).
+
+**Benchmark v2 en EUR/USD (referencia, recalculado en la misma corrida -
+coincide exacto con el resultado ya documentado):** realista 40 trades, WR
+35.0%, PF 1.08, DD 16.5%; exploratorio 40 trades, WR 35.0%, PF 1.12, DD
+22.0%.
+
+**Resultado - tendencia-pullback en EUR/USD:**
+
+| | Realista | Exploratoria |
+|---|---|---|
+| Trades | 44 | 44 (idénticos) |
+| Win rate | 34.1% | 34.1% |
+| Profit factor | **1.01** | **1.28** |
+| Drawdown | 24.9% | 16.4% |
+| PF 1ra mitad | 0.93 | 1.44 |
+| PF 2da mitad | 1.11 | 1.02 |
+
+**Se confirma el punto central que pidió verificar el usuario: el filtro
+de capital de la sección 3.2 tampoco bloquea nada acá** - trades
+idénticos (44=44) entre vista realista y exploratoria, igual que pasó con
+v2 en este mismo instrumento. Confirma que la ventaja de capital en Forex
+es del pip value bajo en sí, no de la lógica de entrada particular (v2 de
+reversión o v3 de tendencia) - se sostiene sin importar cuál de las dos
+estrategias se use.
+
+**Pero la calidad de señal no mejora nada respecto al benchmark, y sigue
+sin acercarse al umbral**: PF 1.01 realista (peor que el 1.08 de v2) y
+1.28 exploratorio (mejor que el 1.12 de v2, pero lejos de 1.5) - un
+resultado esencialmente empatado con v2, no una mejora. El drawdown
+realista (24.9%) es claramente peor que el de v2 en el mismo instrumento
+(16.5%) - una regresión en esa métrica particular. La consistencia entre
+mitades tampoco convence: en vista realista mejora de la 1ra a la 2da
+mitad (0.93→1.11, ninguna de las dos cerca de 1.5), pero en vista
+exploratoria empeora (1.44→1.02) - patrones opuestos entre vistas, sin
+ninguna lectura clara de mejora sostenida.
+
+**Solapamiento con v2**: 1 de 70 señales crudas de tendencia-pullback
+coincidió con una señal de v2 en la misma vela (1.4%), y fue
+contradictoria (tendencia BUY vs v2 SELL) - mismo patrón de baja
+frecuencia y contradicción sistemática ya visto en Oro y BTC. Aplicaría
+el mismo criterio de desempate si se llegara a operar en paralelo, pero
+es irrelevante acá porque la estrategia no aprueba.
+
+**Decisión: NO se activa v3 en EUR/USD.** Ni en vista realista ni en
+exploratoria se acerca al criterio de aprobación (PF>1.5), y no mejora el
+benchmark de v2 en el mismo instrumento - quedan prácticamente
+empatados. Confirma con el segundo diseño (tendencia, después de
+reversión) que el problema de fondo en EUR/USD **no es de ejecución
+(capital) sino de calidad de señal con estos parámetros exactos**,
+trasplantados sin ajuste desde Oro/BTC - ninguno de los dos enfoques (v2
+ni v3) genera una ventaja real en este instrumento tal como están
+diseñados hoy. Sin flag de producción - no hace falta código nuevo para
+reconsiderarlo, `TrendPullbackStrategy(symbol="EURUSD", timeframe="H1")`
+ya es instanciable tal cual. Si se quiere retomar Forex en el futuro, el
+camino sugerido sigue siendo el mismo que para v2: repensar el criterio de
+entrada específico para este tipo de instrumento (por ejemplo niveles
+manuales cargados a mano, o una definición de tendencia/pullback ajustada
+a la volatilidad típica de Forex) antes de asumir que los parámetros de
+Oro/BTC funcionan igual acá.
+
 ## Próximos pasos pendientes
 
 1. Juntar operaciones reales de la cuenta real con la Metodología v2 (RSI
@@ -2111,6 +2188,25 @@ parámetros de EMA/proximidad ajustados para la volatilidad de BTC).
     de Oro (segunda línea manual) - no aplica en BTC, y por eso no hace
     falta resolver la integración con `src/bot.py` que se había
     planteado como pendiente condicional a que aprobara.
+24. Tendencia con pullback a EMA en EUR/USD - **rechazada (29/09/2026)**.
+    Ver "Tendencia con pullback a EMA en EUR/USD" más arriba. Se confirma
+    el punto que pidió verificar el usuario: el filtro de capital de la
+    sección 3.2 tampoco bloquea nada acá (44 trades idénticos en vista
+    realista y exploratoria), igual que con v2 en este instrumento - la
+    ventaja de capital de Forex es del pip value bajo, no de la lógica de
+    entrada particular. Pero la calidad de señal no mejora sobre el
+    benchmark de v2 (PF 1.08/1.12): v3 da PF 1.01 realista (peor) y 1.28
+    exploratorio (algo mejor, pero lejos de 1.5), con drawdown realista
+    peor (24.9% vs 16.5%) y patrones de consistencia entre mitades
+    opuestos según la vista - sin ninguna lectura de mejora sostenida.
+    Solapamiento con v2: 1.4% de las señales (1 de 70), contradictoria.
+    Confirma con el segundo diseño (después de v2) que el problema de
+    fondo en EUR/USD es de calidad de señal con estos parámetros
+    trasplantados sin ajuste, no de ejecución/capital. Sin flag de
+    producción. Si se retoma Forex en el futuro: mismo camino sugerido
+    que para v2, repensar el criterio de entrada específico para este
+    tipo de instrumento antes de asumir que los parámetros de Oro/BTC
+    funcionan igual acá.
 
 ## Cómo correr cosas
 
