@@ -2430,6 +2430,29 @@ Oro/BTC funcionan igual acá.
     sustento, no hay una señal de calidad validada esperando detrás del
     bloqueo de capital. Ningún reusable en producción cambia (ninguna de
     las 5 líneas tenía flag), no se corrió el barrido con datos nuevos.
+38. Ruptura estructural con volumen en Oro - **RECHAZADA (29/09/2026)**.
+    Ver "Ruptura estructural con volumen en Oro" más arriba. Reutilización
+    directa de `LevelBreakoutStrategy` (BTC) sobre Oro con MT5 real, 21
+    meses completos desde el arranque (`data/xauusd_h1_volume_converted.csv`,
+    export nuevo pedido al usuario porque la referencia oficial de 21
+    meses no tenía volumen). Con volumen≥2.0x (el barrido de entrenamiento
+    ni siquiera superó PF 1.0 en ningún umbral probado): 41 trades
+    realista, PF 0.60 (perdedora), split 0.32/1.00; 152 trades
+    exploratorio, PF 1.70 pero split 0.83/2.31 (falla consistencia,
+    inflado por la 2da mitad). La hipótesis de capital del usuario se
+    confirma mecánicamente (41 trades ejecutables vs 2 de v2 - el SL
+    detrás del nivel roto sí es más angosto) pero no rescata nada: a
+    diferencia de tendencia-pullback en Oro, acá el subconjunto que pasa
+    el filtro de capital es el de PEOR calidad (PF 0.60 vs 1.70 del resto),
+    no el de mejor. Solapamiento con v2: 0%. Con este rechazo se agotan las
+    tres familias de mecanismo alternativo evaluadas en profundidad en Oro
+    (reversión con filtros, tendencia-pullback, ruptura) sin ninguna
+    rescatable contra MT5 real. Sin flag de producción,
+    `LevelBreakoutStrategy(symbol="XAUUSD", ...)` reusable tal cual para
+    otro diseño de SL/TP si se retoma, aunque el hallazgo central (SL
+    angosto = peor calidad acá, al revés que en tendencia-pullback) sugiere
+    que ajustar parámetros no cambiaría la conclusión sin repensar el
+    mecanismo de entrada.
 
 ## Tendencia con pullback a EMA 21 en BTC (recalibrado, 29/09/2026) — RECHAZADA
 
@@ -3424,6 +3447,109 @@ capital" queda sin sustento, ya no hay una señal validada esperando del
 otro lado del filtro de capital. Ninguno de los 5 pasa de rechazado a
 aprobado. Sin cambios de código - recálculo puro sobre datos ya
 disponibles, ningún script necesitó modificarse.
+
+## Ruptura estructural con volumen en Oro (29/09/2026) — RECHAZADA
+
+Después de agotar reversión (v2, metodología de rango x2) y tendencia (v3,
+piso de volatilidad ATR) sin ningún resultado rescatable en Oro, el
+usuario pidió un mecanismo genuinamente distinto: adaptar
+`LevelBreakoutStrategy` (la ruptura de nivel estructural con volumen
+armada hoy para BTC, rechazada ahí por calidad pero con código ya
+validado) a Oro - momentum de ruptura, 0% de solapamiento conceptual con
+v2. Hipótesis del usuario: el SL detrás del nivel roto puede ser más
+angosto que el de un pullback profundo, aflojando el cuello de botella de
+capital de la sección 3.2 que bloquea casi todo en Oro.
+
+**Requisitos no negociables fijados por el usuario desde el arranque**
+(lecciones explícitas de las evaluaciones de hoy): (1) MT5 real como única
+fuente, nada de Twelve Data ni como exploración; (2) 21 meses completos
+desde el inicio, no empezar con 7 y extender después; (3) vela de
+confirmación incluida desde el primer backtest, no opcional; (4) piso de
+muestra 8-12 mínimo/25-30 ideal, declarado explícitamente si no se
+alcanza; (5) mismo criterio de aprobación de siempre. Entregable pedido:
+un solo resultado consolidado, sin iteraciones parciales.
+
+**Sin cambios de código** - `LevelBreakoutStrategy`
+(`src/strategies/level_breakout.py`) ya exige vela de confirmación por
+diseño (no tiene variante "sin ella" que evitar) y ya maneja volumen de
+forma genérica; `scripts/backtest_level_breakout.py` ya es agnóstico de
+símbolo/pip config. Solo hizo falta el dato: `data/xauusd_h1_full.csv`
+(la referencia oficial de 21 meses) no tenía columna de volumen (se había
+convertido sin ella para v2/v3, que no la necesitaban) - se le pidió al
+usuario un export nuevo de MT5 con `<TICKVOL>` cubriendo el mismo período
+completo de 21 meses (`Symbols → Bars → XAUUSDm → H1 → Export`,
+2025-01-01 a hoy) - 10.292 velas reales, `data/xauusd_h1_volume_converted.csv`
+(gitignored). `pip_size=0.01`, `pip_value_per_lot=1.0` (convención de
+Oro), capital real $707.24.
+
+**Resultado consolidado (una sola corrida, sin ajustes intermedios):**
+
+| | v2 (benchmark, mismo feed) | Ruptura de nivel con volumen (volumen≥2.0x, elegido por barrido) |
+|---|---|---|
+| Señales crudas | 67 | 264 |
+| Trades (realista) | 2 | **41** |
+| Win rate (realista) | 50.0% | 26.8% |
+| Profit factor (realista) | 1.87 | **0.60 (perdedora)** |
+| Drawdown (realista) | 1.6% | **26.6%** |
+| PF 1ra/2da mitad (realista) | — (n=2) | **0.32 / 1.00** |
+| Trades (exploratorio) | — | 152 |
+| Profit factor (exploratorio) | — | **1.70** |
+| PF 1ra/2da mitad (exploratorio) | — | **0.83 / 2.31** |
+| Drawdown (exploratorio) | — | 304.9%* |
+
+(*Drawdown exploratorio no es literal en magnitud, mismo disclaimer de
+siempre para lote fijo.)
+
+**El barrido de umbral de volumen (selección fuera de muestra, solo sobre
+la 1ra mitad de entrenamiento) ya adelantaba el resultado**: ninguno de
+los 3 umbrales probados (1.3x/1.5x/2.0x) superó PF 1.0 en entrenamiento
+(0.81/0.72/0.83) - la señal no mostraba nada rescatable desde el primer
+paso del protocolo, antes incluso de llegar al backtest completo. Se
+eligió 2.0x por ser el menos malo (PF entrenamiento 0.83), no por pasar
+ningún criterio real.
+
+**Falla el criterio de aprobación en las dos vistas, por motivos
+distintos**: en vista realista, profit factor por debajo de 1.0 (0.60,
+sistema perdedor) con la primera mitad catastrófica (0.32, 15% de win
+rate) - muestra de 41 trades, por encima del piso mínimo (8-12) aunque
+por debajo del ideal (25-30), suficiente para un rechazo sin ambigüedad
+dado lo unánime del resultado en ambas mitades (ninguna llega ni a 1.5).
+En vista exploratoria el total (1.70) parece mejor, pero **falla
+consistencia entre mitades de forma marcada**: 1ra mitad perdedora (0.83,
+25% win rate) y 2da mitad muy por encima (2.31) - el patrón clásico de
+resultado inflado por una racha en un solo tramo del período, exactamente
+lo que el criterio de split-half está diseñado para detectar.
+
+**La hipótesis de capital SÍ se confirma mecánicamente, pero no rescata
+nada**: el diseño efectivamente destraba muchas más señales que v2 (41
+trades ejecutables vs. 2 - el SL detrás del nivel roto es en efecto más
+angosto que el de un pullback profundo, tal como predijo el usuario). Pero,
+a diferencia de tendencia-pullback en Oro (donde el filtro de capital
+terminó filtrando también por calidad, quedándose con los mejores
+setups), acá pasa lo **opuesto**: las 41 señales que sí pasan el filtro de
+capital (realista, PF 0.60) rinden peor que la población general de 152
+señales sin ese filtro (exploratorio, PF 1.70) - el subconjunto de SL más
+angosto en este diseño resulta ser el de peor calidad, no el mejor. Ampliar
+la ejecutabilidad no sirvió de nada porque las señales recién destrabadas
+son justamente las malas.
+
+**Solapamiento con v2: 0 de 264 señales coincidieron en la misma vela
+(0%)** - se confirma la independencia conceptual esperada (ruptura de
+momentum vs. reversión), aunque irrelevante dado que el diseño no aprueba.
+
+**Decisión: RECHAZADA, rechazo limpio con evidencia clara en ambas
+vistas** (no una cadena de variantes aflojadas - una sola corrida
+consolidada, tal como pidió el usuario). Con esto se agotan las tres
+familias de mecanismo alternativas evaluadas en profundidad para Oro
+(reversión con filtros: rango, tendencia 4H, piso ATR; tendencia con
+pullback a EMA/v3; ahora ruptura estructural con volumen) sin ninguna
+rescatable con la referencia oficial de datos (MT5 real). Sin flag de
+producción - `LevelBreakoutStrategy(symbol="XAUUSD", ...)` queda
+reusable tal cual si se quiere reconsiderar con un diseño de SL/TP
+distinto en el futuro, aunque el hallazgo central (el subconjunto de SL
+angosto es el de peor calidad, no el de mejor) sugiere que ajustar
+parámetros sin repensar el mecanismo de entrada probablemente no cambie
+la conclusión.
 
 ## Cómo correr cosas
 
